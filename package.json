@@ -1,0 +1,17 @@
+{
+  "name": "ehiring-autotest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:unit": "playwright test --project=unit",
+    "report": "playwright show-report",
+    "cleanup": "set QA_CLEANUP=1&& playwright test --project=cleanup",
+    "web": "node web/server.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
