@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>eHiring Test</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap");
+  :root { --bg:#f7f7f5; --surface:#fff; --field:#ecedf0; --ink:#0d0f13; --mute:#6b7280; --line:#e2e4e8; --btn:#0d0f13; --btnink:#fff;
+    --hero:#101318; --heroink:#eef0f3; --heromute:#8b93a1; --live:#3ddc97; --liveink:#05140d;
+    --ok:#0f8a56; --okbg:#dff5e9; --bad:#c4291f; --badbg:#fde4e1; --warn:#946200; --warnbg:#fff0c9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0b0d10; --surface:#14171c; --field:#1c2027; --ink:#eceef2; --mute:#8d95a3; --line:#252a33; --btn:#eceef2; --btnink:#0b0d10;
+    --hero:#1b1f27; --ok:#4cd197; --okbg:#0f2d21; --bad:#ff8a80; --badbg:#35171a; --warn:#ffc04d; --warnbg:#2e2409; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "Bricolage Grotesque","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  :focus-visible { outline:2px solid var(--ink); outline-offset:3px; }
+  header { max-width:1240px; margin:0 auto; padding:22px 32px 0; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; letter-spacing:-.02em; }
+  .brand i { width:10px; height:10px; border-radius:50%; background:var(--live); box-shadow:0 0 0 4px color-mix(in srgb, var(--live) 25%, transparent); }
+  .brand small { font-weight:500; font-size:13px; color:var(--mute); letter-spacing:0; }
+  .tabs { display:flex; gap:2px; padding:4px; background:var(--field); border-radius:999px; }
+  .tab { background:transparent; color:var(--mute); border:0; border-radius:999px; padding:8px 18px; font:inherit; font-size:14.5px; font-weight:600; cursor:pointer; }
+  .tab.active { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  main { max-width:1240px; margin:0 auto; padding:56px 32px 96px; }
+  h2.page { font-size:clamp(30px,4.4vw,48px); line-height:1.02; letter-spacing:-.035em; font-weight:700; margin:0 0 26px; text-wrap:balance; }
+  .sub { color:var(--mute); margin:0 0 44px; max-width:56ch; font-size:18px; }
+  h2 { font-size:22px; margin:0 0 14px; letter-spacing:-.02em; font-weight:700; }
+  /* Mặc định không khung; chỉ kết quả/tiến trình mới là mặt phẳng nổi */
+  .card { margin:0 0 48px; }
+  #job .card, details.card, #flows, .card:has(#history) { background:var(--surface); border-radius:20px; padding:26px 28px; margin-bottom:20px; }
+  label { display:block; font-weight:600; margin:0 0 8px; }
+  input, textarea, select { border:2px solid transparent; border-radius:12px; background:var(--field); color:var(--ink); font:inherit; padding:13px 16px; }
+  input[type=url], textarea { width:100%; }
+  textarea { min-height:150px; resize:vertical; }
+  input:focus, textarea:focus, select:focus { outline:0; border-color:var(--ink); background:var(--surface); }
+  input[type=checkbox] { accent-color:var(--live); width:18px; height:18px; padding:0; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:18px; }
+  button { padding:12px 22px; border-radius:12px; border:2px solid var(--btn); background:var(--btn); color:var(--btnink); font:inherit; font-weight:600; cursor:pointer; }
+  button:hover:not(:disabled) { opacity:.86; }
+  button.ghost { background:transparent; color:var(--ink); border-color:var(--line); } button.ghost:hover:not(:disabled) { border-color:var(--ink); opacity:1; }
+  button.danger { background:transparent; color:var(--bad); border-color:var(--badbg); } button.danger:hover:not(:disabled) { background:var(--badbg); opacity:1; }
+  button:disabled { opacity:.4; cursor:not-allowed; } button.big { padding:16px 30px; font-size:17px; border-radius:14px; }
+  .hint { color:var(--mute); font-size:14px; }
+  ul { margin:0; padding-left:18px; } li { margin:4px 0; }
+  .tag { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12.5px; font-weight:700; }
+  .khop { background:var(--okbg); color:var(--ok); } .lech { background:var(--badbg); color:var(--bad); } .chua_co { background:var(--warnbg); color:var(--warn); }
+  .step { border-top:1px solid var(--line); padding:14px 0; } .step:first-child { border-top:0; }
+  .meta { color:var(--mute); font-size:13.5px; } img.shot { width:100%; border-radius:12px; box-shadow:0 0 0 1px var(--line); }
+  .err { background:var(--badbg); color:var(--bad); padding:14px 16px; border-radius:12px; font-weight:500; }
+  table { border-collapse:collapse; width:100%; font-size:14px; } td,th { border-bottom:1px solid var(--line); padding:9px 10px; text-align:left; vertical-align:top; }
+  th { color:var(--mute); font-weight:600; font-size:13px; }
+  details summary { cursor:pointer; color:var(--mute); font-weight:500; } details.card summary { color:var(--ink); font-weight:600; }
+  .flowrow { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 0; border-top:1px solid var(--line); } .flowrow button { padding:6px 14px; font-size:14px; }
+  pre.logbox { background:#0b0d10; color:#cfd6e4; padding:16px; border-radius:12px; max-height:340px; overflow:auto; font:12.5px/1.55 ui-monospace,Consolas,monospace; white-space:pre-wrap; }
+  label.inl { font-weight:400; margin:0; display:flex; align-items:center; gap:8px; }
+  /* Dòng thời gian bước chạy: màu chấm = trạng thái */
+  ol.steps { list-style:none; padding:0; margin:12px 0; counter-reset:s; }
+  ol.steps li { counter-increment:s; position:relative; padding:6px 10px 6px 40px; margin:0; display:flex; gap:8px; align-items:baseline; border-radius:10px; }
+  ol.steps li::before { content:counter(s); position:absolute; left:6px; top:7px; width:22px; height:22px; border-radius:50%; background:var(--field); color:var(--mute); font-size:11.5px; font-weight:700; display:grid; place-items:center; z-index:1; }
+  ol.steps li:not(:last-child)::after { content:""; position:absolute; left:16px; top:30px; bottom:-6px; width:2px; background:var(--field); }
+  ol.steps li.pending { color:var(--mute); } ol.steps li.pending .ic { display:none; }
+  ol.steps li.running { font-weight:600; } ol.steps li.running::before { background:#ffc23d; color:#241800; }
+  ol.steps li.ok::before { background:var(--live); color:var(--liveink); } ol.steps li.ok .ic { color:var(--ok); }
+  ol.steps li.fail { background:var(--badbg); color:var(--bad); } ol.steps li.fail::before { background:#ff5a4d; color:#fff; }
+  #procChips { gap:8px; } #procChips button { padding:4px 13px; font-size:13.5px; font-weight:500; border-radius:999px; background:var(--field); border-color:transparent; color:var(--ink); }
+  #procChips button:hover { background:var(--ink); color:var(--bg); opacity:1; }
+  .work { display:grid; grid-template-columns:minmax(0,1fr) 440px; gap:32px; align-items:start; }
+  .work-side { position:sticky; top:16px; max-height:calc(100vh - 32px); overflow:auto; border-radius:20px; }
+  .work-side #job .card { margin-bottom:0; }
+  #job:empty { min-height:220px; border:2px dashed var(--line); border-radius:20px; display:grid; place-items:center; padding:24px; text-align:center; color:var(--mute); }
+  #job:empty::before { content:"Bấm Chạy ở một luồng bên trái. Tiến trình từng bước hiện ở đây."; max-width:26ch; }
+  @media (max-width:1060px) {
+    .work { grid-template-columns:1fr; } .work-side { position:static; max-height:none; order:-1; } #job:empty { display:none; }
+  }
+  @media (max-width:860px) {
+    header, main { padding-left:16px; padding-right:16px; } main { padding-top:36px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; scroll-behavior:auto !important; } }
+  h3 { font-size:16px; margin:22px 0 8px; } td a { color:inherit; }
+  .notice { background:var(--field); border-radius:14px; padding:14px 18px; margin-top:14px; } .notice.ok { background:var(--okbg); color:var(--ok); } .notice.ok .hint { color:inherit; opacity:.8; }
+  .notice .row { margin-top:10px; } .recbar { padding:22px 26px; } .flowcard { padding:18px 22px !important; margin-bottom:14px !important; } .flowcard .more { margin-top:12px; border-top:1px solid var(--line); padding-top:6px; }
+  ol.steps.compact li { padding:5px 0 5px 40px; font-size:15px; } details.sec { border-top:1px solid var(--line); padding:10px 0; } details.sec[open] summary { margin-bottom:8px; } details.sec summary { color:var(--ink); font-weight:600; font-size:15px; }
+  .runcard { background:var(--surface); border-radius:20px; padding:22px 26px !important; margin-top:18px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>eHiring Test <small>staging shinhanbank</small></div>
+  <nav class="tabs"><button class="tab" data-tab="flows">Quay &amp; chạy lại</button><button class="tab" data-tab="run">Luồng có sẵn</button></nav>
+</header>
+<main>
+  <section id="tab-run" class="tabsec" hidden>
+    <h2 class="page">Chạy luồng test.</h2>
+    <p class="sub">Chọn luồng có sẵn rồi bấm Chạy. Hoặc tự gõ luồng cần test: web chạy ngay và nhờ AI phân tích song song.</p>
+    <div class="work"><div class="work-main">
+    <div class="card" id="flows">
+      <div class="row" style="margin:0 0 6px"><h2 style="margin:0">Luồng có sẵn</h2>
+        <label class="inl" style="margin-left:auto"><input type="checkbox" id="headed" checked /> Hiện cửa sổ Chrome</label></div>
+      <p class="hint" style="margin:0 0 8px">Chọn một luồng rồi bấm Chạy, không cần nhập gì thêm.</p>
+      <div id="flowList"></div>
+    </div>
+    <div class="card">
+      <h2>Tự gõ luồng cần test</h2>
+      <p class="hint" style="margin:0 0 8px">Gõ các bước bằng tiếng Việt, mỗi bước một dòng (hoặc ngăn bằng →). Ví dụ: tạo YCTD → duyệt → tạo kế hoạch → bắt đầu → tạm dừng → đóng kế hoạch. Khớp các bước có sẵn thì chạy ngay, AI phân tích song song để đối chiếu. Có bước web chưa hiểu thì AI phân tích trước rồi hỏi lại bạn.</p>
+      <textarea id="procText" rows="5" style="width:100%" placeholder="tạo YCTD&#10;duyệt&#10;tạo kế hoạch&#10;bắt đầu&#10;tạm dừng"></textarea>
+      <div id="procChips" class="row" style="flex-wrap:wrap"></div>
+      <div id="procParsed"></div>
+      <div class="row"><button id="procAi" class="ghost">🤖 Xem AI hiểu thế nào</button><select id="procProv"><option value="claude">Claude (~30s, ~0,1$)</option><option value="ollama">Ollama (miễn phí, chậm)</option></select><span class="hint">Tự phân tích khi bạn bấm chạy; cũng có thể bấm tay để xem trước</span></div>
+      <div id="procAiOut"></div>
+      <div class="row">
+        <button id="procRun" class="big" disabled>▶ Chạy luồng này</button>
+        <input id="procName" placeholder="Tên để lưu" style="width:180px" />
+        <button id="procSave" class="ghost">Lưu</button>
+        <select id="procSaved"><option value="">— Quy trình đã lưu —</option></select>
+        <button id="procDel" class="ghost">Xoá</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="margin:0">
+        <b>Dữ liệu test</b><span class="hint" id="regInfo"></span>
+        <button id="cleanup" class="ghost" style="margin-left:auto">Dọn dữ liệu test</button>
+      </div>
+    </div>
+    <div class="card"><h2>Lịch sử các lượt chạy</h2><div id="history" class="meta">(chưa có)</div></div>
+    </div>
+    <aside class="work-side"><div id="job"></div></aside></div>
+  </section>
+<section id="tab-flows" class="tabsec" hidden>
+  <h2 class="page">Quay một lần,<br>chạy lại mãi.</h2>
+  <div class="card recbar">
+    <div class="row" style="margin-top:0">
+      <input id="recName" placeholder="Đặt tên luồng, vd: Tạo kế hoạch tuyển dụng" style="flex:1;min-width:240px" />
+      <button id="recStart" class="big">⏺ Bắt đầu quay</button>
+    </div>
+    <div id="recLiveBox" hidden>
+      <div class="row">
+        <span id="recState"></span>
+        <button id="recPause" class="ghost">⏸ Tạm dừng</button>
+        <button id="recResume" class="ghost" hidden>⏵ Tiếp tục</button>
+        <button id="recStop" class="big">⏹ Dừng &amp; lưu</button>
+      </div>
+      <div class="row"><input id="recNote" placeholder="Ghi chú (không bắt buộc) rồi Enter" style="flex:1;min-width:240px" /></div>
+      <ol class="steps compact" id="recLive"></ol>
+    </div>
+    <div id="recSaved"></div>
+  </div>
+  <div id="runPanel"></div>
+  <div class="row" style="margin:34px 0 8px"><h2 style="margin:0">Luồng đã lưu</h2><span class="meta" id="flowStats"></span>
+    <input id="libSearch" placeholder="Tìm…" style="margin-left:auto;width:200px;padding:8px 14px" /></div>
+  <div id="flowCards"></div>
+</section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const list = (a) => (a && a.length ? '<ul>' + a.map((x) => `<li>${esc(x)}</li>`).join('') + '</ul>' : '<span class="meta">(không có)</span>');
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+let POLL = null;
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString('vi-VN');
+const STATUS = { running: ['ĐANG CHẠY', 'chua_co'], passed: ['XANH — ĐẠT', 'khop'], failed: ['ĐỎ — LỖI', 'lech'], stopped: ['ĐÃ DỪNG', 'chua_co'] };
+const ICON = { running: '⏳', ok: '✓', fail: '✗', skipped: '–', pending: '○' };
+
+async function loadFlows() {
+  const r = await (await fetch('/api/flows')).json();
+  setReg(r.registry);
+  const groups = {};
+  r.flows.forEach((f) => (groups[f.nhom] ??= []).push(f));
+  $('flowList').innerHTML = Object.entries(groups).map(([g, fs]) => `<div class="step"><b>${esc(g)}</b><div class="meta">${esc(fs[0].tao)}</div>
+    ${fs.map((f) => `<div class="flowrow"><span>${esc(f.title)}</span><button class="ghost" data-run="${esc(f.id)}">Chạy</button></div>`).join('')}</div>`).join('');
+  $('flowList').querySelectorAll('[data-run]').forEach((b) => (b.onclick = () => startRun(b.dataset.run)));
+  loadHistory();
+  if (r.running) watch(r.running.id);
+}
+
+function setReg(n) { $('regInfo').textContent = n ? `Đang có ${n} bản ghi test chưa dọn.` : 'Chưa có dữ liệu test cần dọn (nút vẫn dọn thông báo rác).'; }
+
+async function startRun(id) {
+  try {
+    watch((await post('/api/run', { id, headed: $('headed').checked })).id);
+  } catch (e) { $('job').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+// ---- Tự soạn quy trình ----
+let PT;
+async function procParse() {
+  const text = $('procText').value;
+  const r = await post('/api/proc/parse', { text });
+  $('procChips').innerHTML = '<span class="hint">Thêm nhanh:</span>' + r.actions.map((a) => `<button class="ghost" data-add="${esc(a.nhan.split(' →')[0].split(' (')[0])}" title="${esc(a.nhom)}">${esc(a.nhan.split(' →')[0].split(' (')[0])}</button>`).join('');
+  $('procChips').querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { const t = $('procText'); t.value = (t.value.trim() ? t.value.trim() + '\n' : '') + b.dataset.add; procParse(); }));
+  $('procParsed').innerHTML = r.steps.length ? `<ol class="steps">${r.steps.map((s) => `<li class="${s.ok ? 'ok' : 'fail'}"><span class="ic">${s.ok ? ICON.ok : ICON.fail}</span> ${esc(s.nhan || s.input)}${s.ok ? '' : `<div class="meta" style="color:#c0392b">“${esc(s.input)}” — ${esc(s.loi)}</div>`}</li>`).join('')}</ol>` : '';
+  $('procRun').disabled = !$('procText').value.trim();
+}
+$('procText').oninput = () => { $('procParsed').innerHTML = ''; $('procRun').disabled = !$('procText').value.trim(); };
+$('procText').onblur = () => { if ($('procText').value.trim()) procParse().catch(() => {}); };
+$('procRun').onclick = async () => {
+  await procParse(); if ($('procParsed').querySelector('li.fail')) return $('procAi').onclick(); // không khớp luồng đã biết → AI phân tích, rồi hỏi xác nhận
+  try { watch((await post('/api/proc/run', { text: $('procText').value, headed: $('headed').checked })).id); procAnalyze(true); }
+  catch (e) { $('job').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+let PROCS = [];
+async function loadProcs() {
+  PROCS = await (await fetch('/api/procs')).json();
+  $('procSaved').innerHTML = '<option value="">— Quy trình đã lưu —</option>' + PROCS.map((p) => `<option>${esc(p.name)}</option>`).join('');
+}
+$('procSaved').onchange = () => { const p = PROCS.find((x) => x.name === $('procSaved').value); if (p) { $('procText').value = p.text; $('procName').value = p.name; procParse(); } };
+$('procSave').onclick = async () => { try { await post('/api/procs', { name: $('procName').value, text: $('procText').value }); loadProcs(); } catch (e) { alert(e.message); } };
+$('procDel').onclick = async () => {
+  const name = $('procSaved').value; if (!name || !confirm('Xoá quy trình "' + name + '"?')) return;
+  await fetch('/api/procs', { method: 'DELETE', body: JSON.stringify({ name }) }); loadProcs();
+};
+
+async function procAnalyze(auto) {
+  $('procAiOut').innerHTML = '<p class="hint">⏳ AI đang phân tích…</p>';
+  try {
+    const r = await post('/api/proc/ai', { text: $('procText').value, provider: $('procProv').value });
+    const rows = r.steps.map((s) => `<li class="${s.id ? 'ok' : 'fail'}"><span class="ic">${s.id ? ICON.ok : '⚠'}</span> “${esc(s.input)}” → ${s.id ? esc(s.nhan) : '<b>chưa có flow tự động</b>'}<div class="meta">${esc(s.ghi_chu)}</div></li>`).join('');
+    const warn = r.unsupported.length ? `<p class="err">${r.unsupported.length} bước chưa tự động được; chỉ chạy được ${r.steps.length - r.unsupported.length} bước còn lại.</p>` : '';
+    const bad = !r.valid ? '<p class="err">Các bước hỗ trợ chưa hợp lệ về thứ tự hoặc không có bước nào chạy được — sửa lại mô tả.</p>' : '';
+    $('procAiOut').innerHTML = `<div class="card" style="margin-top:8px"><p><b>AI hiểu:</b> ${esc(r.giai_thich)}</p><ol class="steps">${rows}</ol>${warn}${bad}
+      <div class="row"><button id="procAiYes" class="big" ${r.valid ? '' : 'disabled'}>✔ Đúng — chạy ${r.steps.length - r.unsupported.length} bước hỗ trợ</button><button id="procAiNo" class="ghost">✎ Sai — tôi sẽ sửa lại</button></div></div>`;
+    if (auto) { $('procAiOut').querySelector('.row').remove(); return; } // đã chạy rồi: AI chỉ để đối chiếu, không hỏi lại
+    $('procAiNo').onclick = () => { $('procAiOut').innerHTML = ''; $('procText').focus(); };
+    $('procAiYes').onclick = async () => {
+      if (r.unsupported.length && !confirm(`Bỏ qua ${r.unsupported.length} bước chưa có flow và chạy phần còn lại?`)) return;
+      $('procText').value = r.text; await procParse(); $('procAiOut').innerHTML = '';
+      try { watch((await post('/api/proc/run', { text: r.text })).id); } catch (e) { $('job').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+    };
+  } catch (e) { $('procAiOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+$('procAi').onclick = () => procAnalyze(false);
+procParse(); loadProcs();
+
+
+function stepList(steps, expected) {
+  const byTitle = new Map(steps.map((s) => [s.title, s]));
+  const rows = (expected?.length ? expected : steps.map((s) => s.title)).map((t) => {
+    const s = byTitle.get(t);
+    const st = s ? s.status : 'pending';
+    return `<li class="${st}"><span class="ic">${ICON[st] || ICON.pending}</span> ${esc(t)}${s?.ms != null ? ` <span class="meta">${(s.ms / 1000).toFixed(1)}s</span>` : ''}</li>`;
+  });
+  return `<ol class="steps">${rows.join('')}</ol>`;
+}
+
+function renderJob(j) {
+  const [label, cls] = STATUS[j.status] || [j.status, 'chua_co'];
+  const created = j.created?.length ? `<p><b>Dữ liệu vừa tạo (${j.created.length}):</b></p>${list(j.created.map((c) => `${c.flow}: ${c.code || ''} ${c.title}`))}` : '';
+  const errs = j.status === 'failed' ? `<p class="meta">Dòng lỗi đầu tiên:</p><pre class="logbox" style="max-height:140px">${esc((j.log.match(/(?:Error|expect\(|Expected|Received|Timeout)[^\n]*(?:\n[^\n]*){0,6}/) || [''])[0])}</pre>` : '';
+  const branchTests = (j.tests || []).filter((t) => !(j.expected || []).length || /^(tạo →|duyệt|từ chối|huỷ|đã huỷ)/.test(t.title));
+  const branches = j.expectedBranches?.length || branchTests.length ? `<p style="margin-top:12px"><b>Các nhánh</b></p>${stepList(branchTests.filter((t) => !t.title.startsWith('Luồng tuyển dụng')), j.expectedBranches)}` : '';
+  return `<div class="card"><h2>${esc(j.ten)}</h2>
+    <p><span class="tag ${cls}">${label}</span> <span class="meta">bắt đầu ${fmtTime(j.started)} · ${j.durationSec} giây${j.exit != null ? ' · mã thoát ' + j.exit : ''}</span>
+      ${j.status === 'running' ? '<button id="stop" class="ghost" style="margin-left:10px">Dừng</button>' : ''}</p>
+    ${j.resume ? `<div class="row" style="margin:0 0 8px"><button id="resume" class="big">Chạy tiếp từ bước lỗi</button><span class="meta">${esc(j.resume.label)}. Các bước đã xong được bỏ qua.</span></div>` : ''}
+    ${stepList(j.steps || [], j.expected)}${branches}
+    ${j.summary ? `<p><b>${esc(j.summary)}</b></p>` : ''}${created}${errs}
+    <details><summary>Log chi tiết</summary><pre class="logbox" id="logbox">${esc(j.log)}</pre></details>
+    ${j.status !== 'running' && j.created?.length ? '<p class="meta">Dữ liệu trên đã ghi vào registry; bấm "Dọn dữ liệu test" khi không cần nữa.</p>' : ''}</div>`;
+}
+
+function watch(id) {
+  clearInterval(POLL);
+  $('job').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const tick = async () => {
+    const j = await (await fetch('/api/job?id=' + id)).json();
+    const open = document.querySelector('#job details')?.open;
+    $('job').innerHTML = renderJob(j);
+    if (open) { const d = document.querySelector('#job details'); d.open = true; const b = $('logbox'); b.scrollTop = b.scrollHeight; }
+    if ($('resume')) $('resume').onclick = async () => { try { watch((await post('/api/proc/resume', { id, headed: $('headed').checked })).id); } catch (e) { alert(e.message); } };
+    if ($('stop')) $('stop').onclick = () => post('/api/stop', { id }).catch((e) => alert(e.message));
+    const running = j.status === 'running';
+    $('procRun').disabled = running || !$('procText').value.trim();
+    document.querySelectorAll('[data-run]').forEach((b) => (b.disabled = running));
+    if (!running) { clearInterval(POLL); loadHistory(); fetch('/api/flows').then((r) => r.json()).then((r) => setReg(r.registry)); }
+  };
+  tick();
+  POLL = setInterval(tick, 1500);
+}
+
+async function loadHistory() {
+  const l = await (await fetch('/api/jobs')).json();
+  $('history').innerHTML = l.length
+    ? `<table><tr><th>Giờ</th><th>Luồng</th><th>Kết quả</th><th>Thời gian</th><th>Dữ liệu tạo</th></tr>${l.map((j) => `<tr><td>${fmtTime(j.started)}</td><td>${esc(j.ten)}</td><td><span class="tag ${(STATUS[j.status] || [0, 'chua_co'])[1]}">${(STATUS[j.status] || [j.status])[0]}</span></td><td>${j.durationSec}s</td><td>${j.created?.length || 0}</td></tr>`).join('')}</table>`
+    : '(chưa có)';
+}
+
+$('cleanup').onclick = async () => {
+  if (!confirm('Dọn dữ liệu test: xoá mềm kế hoạch, YCTD, mail [AUTOTEST] trong registry VÀ xoá thông báo (chuông) rác của tài khoản QA trong DB. Talent/hồ sơ không xoá được. Tiếp tục?')) return;
+  try { watch((await post('/api/cleanup', {})).id); } catch (e) { $('job').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+loadFlows();
+
+</script>
+<script>
+// ================= Tabs =================
+const TABS = ['flows', 'run'];
+function showTab(n) {
+  if (!TABS.includes(n)) n = 'flows';
+  TABS.forEach((t) => { $('tab-' + t).hidden = t !== n; });
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === n));
+  history.replaceState(null, '', '#' + n);
+  if (n === 'flows') { loadFlows2(); recTick(); }
+}
+document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+
+const TAGCLS = { Passed: 'khop', Observed: 'khop', Confirmed: 'khop', Failed: 'lech', 'Needs verification': 'chua_co', Inferred: 'chua_co', 'Needs review': 'chua_co', Blocked: 'chua_co', Skipped: 'chua_co', Running: 'chua_co', draft: 'chua_co', confirmed: 'khop' };
+const VI = { Passed: 'Đạt', Failed: 'Lỗi', Blocked: 'Bị chặn', 'Needs review': 'Cần xem lại', Skipped: 'Bỏ qua', Running: 'Đang chạy', Observed: 'Đã thấy', Inferred: 'Suy luận', 'Needs verification': 'Cần xác minh', Confirmed: 'Đã xác nhận', draft: 'Nháp', confirmed: 'Đã xác nhận' };
+const tag = (s) => `<span class="tag ${TAGCLS[s] || 'chua_co'}">${esc(VI[s] || s)}</span>`;
+const fmtSec = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+const getJson = async (u) => { const r = await fetch(u); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; };
+const ago = (iso) => iso.slice(0, 16).replace('T', ' ');
+const evLinks = (ev) => (ev && ev.length ? ev.map((i) => '#' + (i + 1)).join(', ') : '—');
+
+// ================= Quay =================
+let REC_T = null; let wasRec = false; let lastRecId = '';
+async function recTick() {
+  const st = await getJson('/api/rec/status');
+  $('recStart').hidden = st.recording; $('recName').hidden = st.recording; $('recLiveBox').hidden = !st.recording;
+  $('recPause').hidden = !st.recording || st.paused; $('recResume').hidden = !st.recording || !st.paused;
+  if (st.recording) {
+    wasRec = true; lastRecId = st.id; $('recSaved').innerHTML = '';
+    $('recState').innerHTML = `${st.paused ? '<span class="tag chua_co">Tạm dừng</span>' : '<span class="tag lech">● Đang quay</span>'} <b>${fmtSec(st.sec)}</b> · ${st.count} thao tác`;
+    $('recLive').innerHTML = st.steps.filter((x) => x.act).slice(-5).map((x) => `<li class="ok"><span class="ic"></span>${esc(x.text)}</li>`).join('');
+    if (!REC_T) REC_T = setInterval(recTick, 1000);
+  } else {
+    clearInterval(REC_T); REC_T = null;
+    if (wasRec) { wasRec = false; afterStop(lastRecId); }
+  }
+}
+$('recStart').onclick = async () => { try { await post('/api/rec/start', { name: $('recName').value }); recTick(); } catch (e) { alert(e.message); } };
+$('recPause').onclick = async () => { await post('/api/rec/pause', {}); recTick(); };
+$('recResume').onclick = async () => { await post('/api/rec/resume', {}); recTick(); };
+$('recStop').onclick = async () => { $('recStop').disabled = true; try { await post('/api/rec/stop', {}); } catch (e) { alert(e.message); } $('recStop').disabled = false; recTick(); };
+$('recNote').onkeydown = async (e) => { if (e.key === 'Enter' && $('recNote').value.trim()) { await post('/api/rec/note', { text: $('recNote').value }).catch((x) => alert(x.message)); $('recNote').value = ''; } };
+
+// Dừng quay → tự phân tích (máy, miễn phí) và lưu thành flow; chỉ hỏi khi đã có flow giống.
+async function afterStop(recId) {
+  $('recSaved').innerHTML = '<p class="meta">Đang lưu luồng vừa quay…</p>';
+  try {
+    const a = await post('/api/rec/analyze', { id: recId, provider: 'none' });
+    if (a.similar.length) {
+      const s = a.similar[0];
+      $('recSaved').innerHTML = `<div class="notice"><b>Đã có luồng giống «${esc(s.name)}»</b> <span class="meta">(${esc(s.reason)})</span><div class="row"><button id="svVer">Cập nhật luồng đó (thêm phiên bản)</button><button id="svNew" class="ghost">Lưu thành luồng mới</button></div></div>`;
+      $('svVer').onclick = () => doSave(a, { mode: 'version', flowId: s.id });
+      $('svNew').onclick = () => doSave(a, { mode: 'new' });
+    } else await doSave(a, { mode: 'new' });
+  } catch (e) { $('recSaved').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+async function doSave(a, body) {
+  const name = a.name && a.name !== 'Luồng ghi lại' ? a.name : 'Luồng ' + ago(new Date().toISOString());
+  const r = await post('/api/flows/save', { recId: a.recId, name, ...body });
+  const learned = a.facts.length;
+  $('recSaved').innerHTML = `<div class="notice ok"><b>✔ Đã lưu «${esc(name)}»</b> — ${a.steps.length} thao tác, ${learned} điều học được từ giao diện${r.proposed ? ` (phiên bản ${r.version} đang chờ bạn chấp nhận)` : ''}.
+    <div class="row">${r.proposed ? '' : '<button id="svRun">▶ Chạy lại ngay</button>'}<button id="svAi" class="ghost">🤖 Nhờ AI phân tích sâu</button><span class="hint">có thể làm sau</span></div></div>`;
+  if ($('svRun')) $('svRun').onclick = () => runFlow(r.flowId);
+  $('svAi').onclick = () => aiEnrich(r.flowId, $('svAi'));
+  loadFlows2();
+}
+async function aiEnrich(flowId, btn) {
+  btn.disabled = true; btn.textContent = 'AI đang phân tích (~30s)…';
+  try { const r = await post('/api/flow/ai', { flowId, provider: 'claude' }); btn.textContent = `✔ Đã thêm ${r.rules} quy tắc, ${r.questions} câu hỏi`; loadFlows2(); }
+  catch (e) { btn.textContent = '✗ ' + e.message.slice(0, 60); btn.disabled = false; }
+}
+
+// ================= Danh sách luồng =================
+let FLOWS = []; let OPEN = new Set();
+async function loadFlows2() {
+  const [fl, d] = await Promise.all([getJson('/api/flows/list'), getJson('/api/dashboard')]);
+  FLOWS = fl;
+  const done = d.runs; const pass = d.byStatus.Passed || 0;
+  $('flowStats').textContent = fl.length ? `${fl.length} luồng · ${done} lần chạy${done ? ` · ${Math.round((pass / done) * 100)}% đạt` : ''}` : '';
+  renderCards();
+}
+function renderCards() {
+  const q = $('libSearch').value.trim().toLowerCase();
+  const rows = FLOWS.filter((f) => !q || `${f.name} ${f.module} ${f.url}`.toLowerCase().includes(q));
+  $('flowCards').innerHTML = rows.length ? rows.map((f) => `<div class="card flowcard" data-id="${f.id}">
+      <div class="row" style="margin:0"><div style="flex:1;min-width:200px"><b style="font-size:17px">${esc(f.name)}</b>
+        <div class="meta">${esc(f.module || '')}${f.module ? ' · ' : ''}cập nhật ${esc(ago(f.updated_at))}${f.last_status ? '' : ' · chưa chạy lần nào'}</div></div>
+        ${f.last_status ? tag(f.last_status) : ''}${f.proposals ? '<span class="tag chua_co">có đề xuất cập nhật</span>' : ''}
+        <button class="big" data-run="${f.id}">▶ Chạy lại</button><button class="ghost" data-more="${f.id}">${OPEN.has(f.id) ? 'Thu gọn' : 'Chi tiết'}</button></div>
+      <div class="more" id="more-${f.id}" ${OPEN.has(f.id) ? '' : 'hidden'}></div></div>`).join('')
+    : '<div class="card"><p class="meta" style="margin:0">Chưa có luồng nào. Đặt tên rồi bấm "Bắt đầu quay" ở trên, thao tác như bình thường, xong bấm "Dừng &amp; lưu".</p></div>';
+  $('flowCards').querySelectorAll('[data-run]').forEach((b) => (b.onclick = () => runFlow(Number(b.dataset.run))));
+  $('flowCards').querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => toggleMore(Number(b.dataset.more))));
+  OPEN.forEach((id) => { if ($('more-' + id)) loadMore(id); });
+}
+$('libSearch').oninput = renderCards;
+function toggleMore(id) { if (OPEN.has(id)) OPEN.delete(id); else OPEN.add(id); renderCards(); }
+
+async function loadMore(id) {
+  const box = $('more-' + id);
+  const D = await getJson('/api/flow?id=' + id);
+  const { flow, current, rules, testCases, questions, runs } = D;
+  const dataSteps = current.steps.map((s, i) => ({ s, i })).filter((x) => x.s.act && x.s.act.dataChoice);
+  const openQ = questions.filter((q) => q.state === 'open');
+  const sec = (title, body, open) => `<details class="sec" ${open ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
+  box.innerHTML = `<div class="row"><button class="ghost" data-act="ai">🤖 AI phân tích sâu</button><button class="ghost" data-act="confirm">${flow.status === 'confirmed' ? 'Bỏ xác nhận' : '✔ Xác nhận luồng này đúng nghiệp vụ'}</button><button class="danger" data-act="delete" style="margin-left:auto">🗑 Xoá luồng</button></div>
+    ${sec(`Các bước (${current.steps.length})`, `<ol class="steps compact">${current.steps.map((x) => `<li class="ok"><span class="ic"></span>${esc(x.text)}${(x.effects || []).filter((e) => !/dashboard/.test(e)).map((e) => `<div class="meta">↳ ${esc(e)}</div>`).join('')}</li>`).join('')}</ol>`)}
+    ${dataSteps.length ? sec(`Dữ liệu chọn khi chạy lại (${dataSteps.length})`, `<p class="hint">Để trống = lấy mục đầu tiên của danh sách.</p>${dataSteps.map((x) => `<div class="row" style="margin-top:6px"><span style="min-width:200px">${esc(x.s.act.dataField || 'Danh sách chọn')}</span><input data-val="${x.i}" value="${esc(x.s.act.text)}" style="flex:1;min-width:200px"/></div>`).join('')}`, true) : ''}
+    ${sec(`Điều hệ thống đã học (${rules.length})`, `<p class="hint">${tag('Observed')} máy thấy trực tiếp · ${tag('Inferred')} AI suy luận · ${tag('Needs verification')} chưa đủ bằng chứng · ${tag('Confirmed')} bạn xác nhận hoặc test kiểm chứng.</p>${rules.length ? `<table>${rules.map((r) => `<tr><td>${tag(r.status)}</td><td>${esc(r.statement)}<div class="meta">bước ${evLinks(r.evidence)}</div></td><td><button class="ghost" data-rule="${r.id}" data-st="Confirmed">Đúng</button></td></tr>`).join('')}</table>` : '<span class="meta">Chưa có.</span>'}`)}
+    ${openQ.length ? sec(`Câu hỏi cần bạn xác nhận (${openQ.length})`, openQ.map((q) => `<div class="step"><div>${esc(q.text)}</div><div class="meta">${esc(q.why || '')}</div><div class="row" style="margin-top:6px"><input data-qa="${q.id}" placeholder="Trả lời" style="flex:1"/><button class="ghost" data-q="${q.id}" data-st="answered">Gửi</button><button class="ghost" data-q="${q.id}" data-st="skipped">Bỏ qua</button></div></div>`).join(''), true) : ''}
+    ${sec(`Test case (${testCases.length})`, testCases.map((c) => `<div class="step row" style="margin-top:0"><div style="flex:1;min-width:200px">${esc(c.title)}<div class="meta">${esc(c.expected || '')}${c.note ? ' · ' + esc(c.note) : ''}</div></div>${c.executable ? `<button class="ghost" data-tc="${c.id}">▶ Chạy</button>` : '<span class="meta">chưa tự chạy được</span>'}</div>`).join('') || '<span class="meta">Chưa có.</span>')}
+    ${flow.versions.length > 1 ? sec(`Phiên bản (${flow.versions.length})`, `<table>${flow.versions.map((v) => `<tr><td>v${v.version}</td><td>${esc(v.state === 'current' ? 'đang dùng' : v.state === 'proposed' ? 'đề xuất' : v.state)}</td><td class="meta">${esc(v.note || '')}</td><td>${v.state === 'proposed' ? `<button class="ghost" data-ver="${v.version}" data-act="accept">Chấp nhận</button> <button class="ghost" data-ver="${v.version}" data-act="reject">Từ chối</button>` : ''}</td></tr>`).join('')}</table>`, flow.versions.some((v) => v.state === 'proposed')) : ''}
+    ${sec(`Lịch sử chạy (${runs.length})`, runs.length ? `<table>${runs.map((r) => `<tr><td>${esc(ago(r.started_at))}</td><td>${tag(r.status)}</td><td><button class="ghost" data-report="${esc(r.id)}">Xem báo cáo</button></td></tr>`).join('')}</table>` : '<span class="meta">Chưa chạy.</span>')}`;
+  box.querySelector('[data-act=ai]').onclick = (e) => aiEnrich(id, e.target);
+  box.querySelector('[data-act=delete]').onclick = async () => {
+    if (!confirm('Xoá luồng «' + flow.name + '»?' + String.fromCharCode(10) + 'Mất cả phiên bản, quy tắc đã học và lịch sử chạy; không khôi phục được. Bản quay thô vẫn còn trong thư mục recordings.')) return;
+    try {
+      const r = await fetch('/api/flow', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      OPEN.delete(id); $('runPanel').innerHTML = ''; loadFlows2();
+    } catch (e) { alert(e.message); }
+  };
+  box.querySelector('[data-act=confirm]').onclick = async () => { await post('/api/flow/status', { id, status: flow.status === 'confirmed' ? 'draft' : 'confirmed' }); loadFlows2(); };
+  box.querySelectorAll('[data-rule]').forEach((b) => (b.onclick = async () => { await post('/api/flow/rule', { id: b.dataset.rule, status: b.dataset.st }); loadMore(id); }));
+  box.querySelectorAll('[data-q]').forEach((b) => (b.onclick = async () => { await post('/api/flow/question', { id: b.dataset.q, answer: box.querySelector(`[data-qa="${b.dataset.q}"]`).value, state: b.dataset.st }); loadMore(id); }));
+  box.querySelectorAll('[data-ver]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.act === 'accept' && !confirm('Chấp nhận phiên bản này làm bản chính? Bản hiện tại vẫn được giữ trong lịch sử.')) return;
+    await post('/api/flow/version', { flowId: id, version: Number(b.dataset.ver), action: b.dataset.act }); loadFlows2();
+  }));
+  box.querySelectorAll('[data-tc]').forEach((b) => (b.onclick = () => runFlow(id, Number(b.dataset.tc))));
+  box.querySelectorAll('[data-report]').forEach((b) => (b.onclick = () => showReport(b.dataset.report)));
+}
+
+// ================= Chạy lại + báo cáo =================
+let RUN_T = null;
+async function runFlow(flowId, testCaseId) {
+  try {
+    const D = await getJson('/api/flow?id=' + flowId);
+    const tc = testCaseId ? D.testCases.find((c) => c.id === testCaseId) : null;
+    const writes = [...new Set((D.current.expected.writes || []).map((w) => `${w.method} ${w.path}`))];
+    let allow = false;
+    if (writes.length || tc) {
+      allow = confirm(`Chạy lại sẽ THỰC HIỆN THẬT trên môi trường test${writes.length ? ' và ghi dữ liệu:' + String.fromCharCode(10) + writes.join(String.fromCharCode(10)) : ' (test case có thể thay đổi dữ liệu).'}${String.fromCharCode(10, 10)}Tiếp tục?`);
+      if (!allow) return;
+    }
+    const values = {}; document.querySelectorAll(`#more-${flowId} [data-val]`).forEach((i) => { values[i.dataset.val] = i.value.trim(); });
+    const j = await post('/api/flow/run', { flowId, testCaseId, params: { values, fallbackFirst: true }, allowWrites: allow });
+    followRun(j.runId, D.flow.name);
+  } catch (e) { alert(e.message); }
+}
+function followRun(runId, name) {
+  clearInterval(RUN_T);
+  $('runPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const tick = async () => {
+    const r = await getJson('/api/run?id=' + runId).catch(() => null);
+    if (!r) return;
+    renderRun(r, name);
+    if (r.status !== 'Running') { clearInterval(RUN_T); RUN_T = null; loadFlows2(); }
+  };
+  RUN_T = setInterval(tick, 1500); tick();
+}
+async function showReport(id) { clearInterval(RUN_T); const r = await getJson('/api/run?id=' + encodeURIComponent(id)); renderRun(r, r.flow_name || ''); $('runPanel').scrollIntoView({ behavior: 'smooth' }); }
+const WHY = { automation: 'Không tìm/bấm được phần tử (giao diện đổi hoặc chưa tải kịp)', business: 'Kết quả thực tế khác bản quay — có thể là lỗi của hệ thống', policy: 'Bị chặn vì hành động khó đảo ngược' };
+function renderRun(r, name) {
+  const s = r.summary || {};
+  const icon = { Passed: '✓', Failed: '✗', Blocked: '⛔', 'Needs review': '!', Skipped: '–', Running: '…' };
+  const bad = r.steps.filter((x) => x.status === 'Failed');
+  const head = r.status === 'Running' ? 'Đang chạy…' : r.status === 'Passed' ? 'Chạy lại thành công' : r.status === 'Failed' ? 'Có lỗi' : r.status === 'Needs review' ? 'Chạy được, nhưng cần bạn xem lại một số điểm' : 'Bị chặn';
+  $('runPanel').innerHTML = `<div class="card runcard"><div class="row" style="margin:0"><h2 style="margin:0">${esc(head)}</h2>${tag(r.status)}<span class="meta">${esc(name || '')} · ${esc(ago(r.started_at))}${r.finished_at ? ' · ' + Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000) + 's' : ''}</span></div>
+    ${bad.map((x) => `<div class="err" style="margin-top:12px"><b>${esc(x.title)}</b><br>${esc(WHY[x.classification] || '')}${x.error ? ' — ' + esc(x.error) : ''}</div>`).join('')}
+    <ol class="steps compact" style="margin-top:14px">${r.steps.map((x) => `<li class="${x.status === 'Passed' ? 'ok' : x.status === 'Failed' ? 'fail' : x.status === 'Running' ? 'running' : ''}"><span class="ic">${icon[x.status] || ''}</span>${esc(x.title)}${x.status !== 'Passed' && x.error && x.status !== 'Failed' ? `<div class="meta">${esc(x.error)}</div>` : ''}</li>`).join('') || '<li class="running">Đang mở trình duyệt…</li>'}</ol>
+    ${r.status !== 'Running' ? `<details class="sec"><summary>Báo cáo chi tiết &amp; ảnh bằng chứng</summary><table>${r.steps.map((x) => `<tr><td>${x.idx + 1}</td><td>${esc(x.title)}</td><td>${tag(x.status)}</td><td class="meta">${esc(x.error || '')}${x.evidence && x.evidence.chosen ? ' Đã chọn: ' + esc(x.evidence.chosen) : ''}</td><td>${x.evidence && x.evidence.shot ? `<a href="/runshots/${esc(r.id)}/${x.idx}.jpg" target="_blank"><img src="/runshots/${esc(r.id)}/${x.idx}.jpg" style="width:110px;border-radius:8px"/></a>` : ''}</td></tr>`).join('')}</table>
+      ${s.proposedVersion ? `<p class="meta">📌 Giao diện đã đổi: có phiên bản đề xuất v${s.proposedVersion} trong Chi tiết của luồng.</p>` : ''}${s.ruleChange ? `<p class="meta">Quy tắc bắt buộc: ${esc(VI[s.ruleChange.from] || s.ruleChange.from)} → ${esc(VI[s.ruleChange.to] || s.ruleChange.to)}</p>` : ''}${(s.limits || []).map((l) => `<p class="meta">⚠ ${esc(l)}</p>`).join('')}</details>` : ''}</div>`;
+}
+if (location.hash && TABS.includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+else showTab('flows');
+</script>
+</body>
+</html>
