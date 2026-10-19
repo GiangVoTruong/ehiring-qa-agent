@@ -4,6 +4,17 @@
 
 Nó **không sửa code eHiring** (repo `D:\CTY\SMC\ehiring` chỉ được đọc). Nó chỉ mở trình duyệt Chrome, đăng nhập bằng tài khoản QA `dev_shinhanbank`, rồi bấm/nhập giống người thật.
 
+## Cài đặt nhanh
+
+Cần Node.js ≥ 20 và Google Chrome (dùng Chrome hệ thống, không tải Chromium).
+
+```bash
+npm install
+copy .env.example .env   # rồi điền BASE_URL, QA_USERNAME, QA_PASSWORD (và QA_TOTP_SECRET nếu Keycloak đòi OTP)
+npm run test:unit        # kiểm tra nhanh, không mở web
+npm test                 # chạy toàn bộ trên staging
+```
+
 ## Bức tranh tổng thể (3 lớp)
 
 ```
@@ -26,9 +37,10 @@ Nó **không sửa code eHiring** (repo `D:\CTY\SMC\ehiring` chỉ được đ�
 | `tests/recruitment-plans/` | Test kế hoạch tuyển dụng (1 kịch bản dài) |
 | `tests/auth.setup.ts` | Đăng nhập một lần cho cả bộ test |
 | `tests/seed.spec.ts` | Test nhỏ "đã đăng nhập chưa" |
+| `tests/custom/` | Chạy lại flow/quy trình do tester ghi từ web (`replay.spec.ts`, `procedure.spec.ts`) |
 | `tests/unit/` | Test logic nhỏ (không mở web) |
 | `tests/cleanup/` | **Dọn dữ liệu test** (chỉ chạy khi bạn gọi `npm run cleanup`) |
-| `web/` | Web nội bộ (`npm run web`): `server.mjs` định tuyến HTTP · `services.mjs` quay→phân tích→flow→chạy lại · `jobs.mjs` chạy test nền · `procedure.mjs` quy trình tự soạn · `recorder.mjs`/`qa-lib.mjs` ghi thao tác · `analysis.mjs` phân tích · `store.mjs` SQLite · `runlib.mjs` xác minh kết quả · `ai.mjs` Claude/Ollama · `ui/` giao diện mới (Overview · Record & Learn · Test Flows · Test Runs · AI Knowledge · Settings; thêm `?mock=1` để xem dữ liệu mẫu) · `index.html` giao diện cũ, mở ở `/classic` |
+| `web/` | Web nội bộ (`npm run web`): `server.mjs` định tuyến HTTP · `services.mjs` quay→phân tích→flow→chạy lại · `jobs.mjs` chạy test nền · `procedure.mjs` quy trình tự soạn · `recorder.mjs`/`qa-lib.mjs` ghi thao tác · `analysis.mjs` phân tích · `store.mjs` SQLite · `runlib.mjs` xác minh kết quả · `ai.mjs` Claude/Ollama · `navmap.mjs` học đường đi qua menu · `cleanup-all.mjs` dọn dữ liệu test · `config.mjs` cấu hình chung (cổng, đường dẫn) · `ui/` giao diện mới (Overview · Record & Learn · Test Flows · Test Runs · AI Knowledge · Settings; thêm `?mock=1` để xem dữ liệu mẫu) · `index.html` giao diện cũ, mở ở `/classic` |
 | `scripts/purge-test-emails.mongosh.js` | Script xoá hẳn mail test trong DB (bạn tự chạy) |
 | `.claude/agents/` | 4 "trợ lý AI": `ehiring-learner` (học nghiệp vụ), `playwright-test-planner/generator/healer` (lập kế hoạch/viết/sửa test) |
 | `CLAUDE.md` | **Luật cho AI** (an toàn dữ liệu, không sửa eHiring…) |
@@ -52,6 +64,8 @@ Mỗi file có mục **"Điểm chưa chắc"** (việc chưa rõ) và **"Nghi b
 ## Web đối chiếu luồng (cho tester)
 
 Chạy `npm run web` rồi mở **http://127.0.0.1:4310** (chỉ truy cập được từ máy bạn).
+
+> Lỗi `EADDRINUSE ... 4310`: web đã chạy sẵn (mở thẳng link trên) hoặc cổng bị tiến trình khác giữ. Tắt tiến trình cũ bằng `Get-NetTCPConnection -LocalPort 4310 | % { Stop-Process -Id $_.OwningProcess }` (PowerShell) hoặc đổi cổng: `set WEB_PORT=4311&& npm run web`.
 
 1. Tester **dán URL** trang eHiring (chỉ nhận `*.stg.ehiring.com.vn`) và **mô tả luồng** bằng lời của mình.
 2. Web mở trang bằng Chrome + tài khoản QA (**chỉ đọc**: mọi request ghi bị chặn) và đọc nút, cột bảng, trường nhập, ảnh chụp.
@@ -91,7 +105,7 @@ Muốn **xem trình duyệt chạy**: `set SLOWMO=400&& npx playwright test --he
 - ✅ Học xong: YCTD, kế hoạch (có test); các nhóm khác đã đọc code.
 - 🟡 Đang học bằng thao tác thật: ứng viên → phỏng vấn → đánh giá → offer.
 - ⬜ Chưa có test cho: ứng viên, phỏng vấn, offer, portal, danh mục, phân quyền.
-- Chưa commit git (theo yêu cầu).
+- Mã nguồn: https://github.com/GiangVoTruong/ehiring-qa-agent (private, nhánh `feature-ehiring-qa-agent`).
 
 ## Quay thao tác → AI học → chạy lại
 
