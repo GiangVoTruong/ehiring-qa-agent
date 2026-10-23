@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
-import { QA_PREFIX, addToRegistry, field, forceEnglish, pick } from './common';
+import { QA_PREFIX, addToRegistry, field, forceEnglish, pick, qaTitle } from './common';
 import type { CreatedRequest } from './recruitment-requests';
 
 export interface CreatedPlan {
@@ -34,6 +34,26 @@ async function pickUser(page: Page, select: Locator): Promise<void> {
  *  - Final approver (Interview, Offer): ô bấm được mở khung "Set up a review process" → Approver = QA → Save.
  *  - "Review Candidate Information": ô tuy ghi "Chọn thành viên" nhưng thực ra chọn loại tài liệu → chọn mục đầu.
  */
+/** Ô nz-select đang báo «Required Field!» (vd vòng «Add Candidate Information» bắt chọn loại thông tin): chọn mục đầu tiên. Trả số ô đã sửa. */
+async function fixRequired(page: Page): Promise<number> {
+  let fixed = 0;
+  for (let guard = 0; guard < 12; guard++) {
+    const cell = page.locator('tbody td').filter({ hasText: 'Required Field!' }).first();
+    if (!(await cell.count())) break;
+    const select = cell.locator('nz-select').first();
+    if (!(await select.count())) break;
+    await select.scrollIntoViewIfNeeded().catch(() => undefined);
+    await select.locator('nz-select-top-control').click({ timeout: 3000 }).catch(() => undefined);
+    const opt = dropdown(page).locator('.ant-select-item-option').first();
+    if (!(await opt.waitFor({ timeout: 3000 }).then(() => true, () => false))) break;
+    await opt.click();
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    fixed++;
+  }
+  return fixed;
+}
+
 async function fillStages(page: Page): Promise<void> {
   const rows = page.locator('tbody tr:visible').filter({ has: page.locator('nz-select') });
   await expect(rows.first()).toBeVisible();
@@ -165,14 +185,26 @@ async function continueTo(page: Page, reached: Locator): Promise<void> {
  * Tạo kế hoạch tuyển dụng từ một YCTD `[QA-AUTO]` đang Open. Người phụ trách (mặc định là người đăng nhập),
  * Interviewers và Final approver đều là tài khoản QA. Không publish (không gắn website) nên không lộ ra portal.
  */
-export async function create(page: Page, request: CreatedRequest, name = 'PATD'): Promise<CreatedPlan> {
+export async function create(page: Page, request: CreatedRequest | null, name = 'PATD'): Promise<CreatedPlan> {
   await forceEnglish(page);
   await page.goto('/recruitment-plans');
   await page.getByRole('button', { name: 'Create recruitment plan' }).click();
 
   // Bước 1 — Recruitment information. Ô mã YCTD không tìm được theo mã (xem Nghi bug) → tìm bằng hậu tố thời gian trong tên.
-  await pick(page, 'Recruitment Request Code', request.code, request.title.split(' ').pop());
-  const planName = `${request.title.split(' ').slice(0, 1)[0]} ${name} ${request.title.split(' ').pop()}`;
+  let planName: string;
+  if (request) {
+    await pick(page, 'Recruitment Request Code', request.code, request.title.split(' ').pop());
+    planName = `${request.title.split(' ').slice(0, 1)[0]} ${name} ${request.title.split(' ').pop()}`;
+  } else {
+    // Không chỉ định YCTD: lấy luôn YCTD đầu tiên trong danh sách (danh sách chỉ có YCTD đang Open).
+    const select = field(page, 'Recruitment Request Code').locator('nz-select');
+    await select.locator('nz-select-top-control').click();
+    const first = dropdown(page).locator('.ant-select-item-option').first();
+    await first.waitFor({ timeout: 15_000 });
+    console.log(`Chọn YCTD đầu tiên: ${(await first.innerText()).trim().replace(/\s+/g, ' ')}`);
+    await first.click();
+    planName = qaTitle(name);
+  }
   await field(page, 'Recruitment Plan').locator('input').fill(planName);
   await pick(page, 'Job Description', 'Tester');
   await pick(page, 'Talent Pool', 'TA POOL', 'TA POOL');
@@ -190,7 +222,8 @@ export async function create(page: Page, request: CreatedRequest, name = 'PATD')
   const clicker = (async () => {
     for (let i = 0; i < 20; i++) {
       await primary.click().catch(() => undefined);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(1200);
+      if (await fixRequired(page)) console.log('Đã điền ô bắt buộc còn trống ở bước vòng tuyển dụng');
     }
   })();
   const res = await Promise.race([saved, clicker.then(() => null)]);
@@ -198,7 +231,7 @@ export async function create(page: Page, request: CreatedRequest, name = 'PATD')
   if (!res.ok()) throw new Error(`Tạo kế hoạch lỗi ${res.status()}: ${await res.text()}`);
 
   const body = await res.json();
-  const created = { id: String(body._id), code: String(body.code), name: planName, requestId: request.id };
+  const created = { id: String(body._id), code: String(body.code), name: planName, requestId: request?.id ?? '' };
   addToRegistry({ flow: 'recruitment-plans', id: created.id, code: created.code, title: planName });
   return created;
 }

@@ -1,7 +1,7 @@
 ---
 flow: recruitment-plans
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-10
+learnedCommit: 3ebed5507
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging)
 sources:
   - libs/models/src/recruitment-plan/recruitment-plan.{vm,schema}.ts
@@ -47,18 +47,22 @@ stateDiagram-v2
 
 - Menu chỉ hiện các hành động trên theo trạng thái (UI chặn). **Backend không kiểm trạng thái nguồn** cho start/pause/continue (đổi thẳng `status`) → xem Điểm chưa chắc.
 - Mọi đường lưu `status: finish` lên kế hoạch chưa kết thúc đều đi qua thao tác đóng chung (`RecruitmentPlanCloseService`), kể cả sửa kế hoạch.
+- Thao tác đóng nhận nguồn (`CloseSource`): `manual`, `api`, `request`, `cron`, `ihrp`, `quota`.
+- Đóng **theo từng kế hoạch**: chỉ kế hoạch mà lệnh cập nhật chuyển được sang `finish` mới được gỡ tin ngoài và báo đóng. Khi hai lần đóng chạy đua, chỉ lần thắng được gỡ tin và báo đóng (theo comment trong code).
 - **Liên luồng YCTD**: đóng YCTD ⇒ đóng mọi kế hoạch chưa `finish` của nó (`source: 'request'`). Kế hoạch `finish` mà YCTD đã đóng (`statusCO='1'`) ⇒ nút trạng thái bị làm mờ (class `disable`) — không gia hạn được.
 
 ## Quyền / vai trò
 
 - Thấy kế hoạch (`CheckPublicInterceptor`): `createdBy`, có trong `assignTo`, là `assignTo`/`approvers` của một vòng, khớp `tags`, hoặc là người tạo / requestedBy / assignTo / requestedForList / người duyệt của YCTD gốc.
 - Không có kiểm tra quyền riêng cho start/pause/close/extend ngoài quyền action `Update-One`.
+- Xếp hạng AI (`ai-ranking`) dùng action `Read-One`, không phải `Update-One`; endpoint gọi `getOne` trước để áp quyền xem PATD của người dùng.
 
 ## Quy tắc dữ liệu
 
 - **Mã kế hoạch** = mã YCTD + 3 chữ số tăng dần theo YCTD: `NI26075` → `NI26075001`, `NI26075002`… (lấy kế hoạch mới nhất có `code` chứa mã YCTD, +1). Không có YCTD → không có mã (trừ kế hoạch có `channel`+`agentType`).
 - Tạo kế hoạch tự gắn các checklist template mặc định (tag DEFAULT) và, nếu có vòng `ApproveInterview`, tạo nhóm phiếu đánh giá cho từng người duyệt vòng đó.
 - Mã vòng (`stage.code`) = `<type>-<chỉ số>` (vd `ScreenCV-0`).
+- `aiLabels` (schema PATD): nhãn AI (`/v1/jd/labels`) của `jobDescription` nhập thẳng trên PATD. PATD tham chiếu JD thư viện (`jobDescriptionRef`) thì nhãn lấy từ `JobDescription.aiLabels`.
 - **Form tạo** — route `/recruitment-plans/create/initial` (vào bằng nút **Create recruitment plan** trên `/recruitment-plans`; mở thẳng `/recruitment-plans/create` sẽ khớp nhầm route `:planId` → trang rỗng). Nhiều phần: initial → setting → mission → valuation → contact.
 
   | Phần | Trường (`name`) — `*` bắt buộc |
@@ -113,12 +117,21 @@ Trang `/recruitment-plans/:id`, nút `button.plan-status-button` mở menu — *
 - Đóng ghi `endDate = bây giờ`; đóng xong gia hạn 1 tuần ⇒ endDate nằm ở tương lai ✔.
 - **Xoá mềm kế hoạch**: `DELETE /api/recruitment-plans/:id` → 200 (UI không có nút xoá). `GET /api/recruitment-requests/:id` vẫn liệt kê kế hoạch đã xoá mềm trong `plan` → muốn biết kế hoạch còn sống phải GET riêng từng kế hoạch (200 = còn, 404 = đã xoá).
 
+## Xếp hạng ứng viên theo AI (ai-ranking)
+
+Thay endpoint `embedding` và `top-talent` (theo comment trong controller). Nguồn: `recruitment-plans.controller.ts`, `libs/ui/common/src/services/recruitment-plans.service.ts`.
+
+| Endpoint | Quyền | Việc làm | Kết quả |
+| --- | --- | --- | --- |
+| `POST /api/recruitment-plans/:id/ai-ranking` | `Read-One` (getOne trước để áp quyền xem PATD) | Xếp hạng talent bằng nhãn AI + `/v1/cv/score` theo tiêu chí trên màn hình xếp hạng | `AiRankingResponseVm`. Lỗi 400 trả `{code, message}`: `AI_CV_SCORE_DISABLED`, `NO_REQUIREMENTS`, `INPUT_TOO_LARGE`, `INVALID_INPUT` |
+| `GET /api/recruitment-plans/:id/ai-ranking/last` | `Read-One` | Lần "Tìm ứng viên" gần nhất + điểm đã lưu; **không gọi AI, không tốn quota** | `AiRankingLastRunVm`, hoặc `null` khi PATD chưa từng tìm hoặc tenant chưa bật chấm điểm |
+
 ## Tác dụng phụ
 
 | Khi | Ai / gì | Ghi chú |
 | --- | --- | --- |
-| Đóng kế hoạch | Gỡ tin đã đăng trên site ngoài (integration, `POST /integration-templates/:code`) | ⚠️ kế hoạch test **không được đăng tin ra ngoài** |
-| Đóng kế hoạch | Email `RECRUITMENT_PLAN_FINISHED` cho **từng `assignTo`** (Person in charge) | Seed shinhanbank không có template này → có thể không gửi |
+| Đóng kế hoạch (chỉ kế hoạch vừa chuyển sang `finish`) | Gỡ tin đã đăng trên site ngoài (integration, `POST /integration-templates/:code`) | ⚠️ kế hoạch test **không được đăng tin ra ngoài** |
+| Đóng kế hoạch (chỉ kế hoạch vừa chuyển sang `finish`) | Email `RECRUITMENT_PLAN_FINISHED` cho **từng `assignTo`** (Person in charge) | Seed shinhanbank không có template này → có thể không gửi |
 | Tạo kế hoạch | Nhóm phiếu đánh giá cho người duyệt vòng ApproveInterview | Người duyệt phải là QA |
 | Tạo kế hoạch | Checklist mặc định gắn vào kế hoạch | — |
 
@@ -150,6 +163,9 @@ Trang `/recruitment-plans/:id`, nút `button.plan-status-button` mở menu — *
 - [ ] Talent Pool / Job Description dùng cho kế hoạch test — khám phá khi viết flow (JD có thể tự điền từ `extra.jobDescriptionRef` của YCTD).
 - [ ] Date picker gửi `startDate`/`endDate` dạng gì (00:00 +07 hay giờ hiện tại)? Quyết định có lệch một ngày không — xem payload khi flow tạo kế hoạch "tự động theo ngày".
 - [ ] Cron `APP_RECRUITMENTPLAN_RUNNER_INTERVAL` trên staging là bao lâu? (cần để kiểm thử tự bắt đầu với startDate = hôm nay) — hỏi người vận hành.
+- [ ] Trigger của nguồn đóng `quota` là gì, và có đường nào gọi đóng với `quota` không? — nguồn đã xem: `recruitment-plan-close.service.ts` (chỉ khai báo kiểu `CloseSource`).
+- [ ] Hành vi xếp hạng AI chi tiết (ngưỡng điểm, cách tính quota, cấu trúc `AiRankingResponseVm` / `AiRankingLastRunVm`, tiêu chí) — chưa học: `plan-ai-ranking.service.ts` không có trong diff; nguồn đã xem: `recruitment-plans.controller.ts` và `recruitment-plans.service.ts` của UI (chỉ có comment).
+- [ ] Nội dung 1 file đổi trong diff `aa1fe551a → 3ebed5507` không được gửi kèm nên chưa học, có thể ảnh hưởng quy tắc chưa ghi nhận — nguồn đã xem: danh sách file trong diff (không có nội dung).
 
 ## Nghi bug
 

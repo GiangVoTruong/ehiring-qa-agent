@@ -7,7 +7,8 @@
     "test:unit": "playwright test --project=unit",
     "report": "playwright show-report",
     "cleanup": "set QA_CLEANUP=1&& playwright test --project=cleanup",
-    "web": "node web/server.mjs"
+    "web": "node web/server.mjs",
+    "knowledge:status": "node web/knowledge-status.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

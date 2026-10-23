@@ -1,7 +1,7 @@
 ---
 flow: interviews
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-11
+learnedCommit: 3ebed5507
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging)
 status: học từ code (chưa xem UI); CHƯA có flow/test
 sources:
@@ -59,6 +59,9 @@ stateDiagram-v2
 
 `POST /schedule-groups` (`createMultiple`), `PATCH /:id/add-application`, `start|approve|cancel`, `approve-form`, `email-preview`. Mỗi ứng viên/người phỏng vấn nhận mail dạng `*_GROUP` (`SCHEDULE_TALENT_GROUP`, `SCHEDULE_USER_GROUP`, và `CHANGE`/`CANCEL`). Cho phép **mẫu mail tuỳ biến theo kế hoạch** (xem trước bằng `email-preview`).
 
+- Preview chỉ thay **subject/body/cc**; `tenant`, `wiseu` và `content.metadata` lấy từ mẫu gốc (nguồn: `schedule-groups.service.ts`, hàm build preview).
+- `To` và `mergeRecipients` chỉ gắn vào preview của **người phỏng vấn đầu tiên** (`index === 0`), để `To` không bị gửi lặp cho mỗi người phỏng vấn; preview của những người còn lại không có `To` (nguồn: `schedule-groups.service.ts`, comment trong code).
+
 ## Mail / thông báo (RỦI RO CAO)
 
 Gửi tới **ứng viên**: `SCHEDULE_TALENT`, `SCHEDULE_CHANGE_TALENT`, `SCHEDULE_CANCEL_TALENT`, các bản `_GROUP`, `GLOBAL_PASS_TALENT`. Gửi tới **người phỏng vấn/người duyệt/người phụ trách**: `SCHEDULE_USER*`, `EVALUATION_FORM*`. Qua `SchedulesNotificationPublisher` (sự kiện thông báo) nên có thể là mail + thông báo trong app. Để an toàn: ứng viên QA có email hộp thư QA; **người phỏng vấn, người duyệt, người phụ trách kế hoạch = tài khoản QA**.
@@ -76,3 +79,8 @@ Gửi tới **ứng viên**: `SCHEDULE_TALENT`, `SCHEDULE_CHANGE_TALENT`, `SCHED
 ## Nghi bug
 
 - 2026-10-11 · (code, chưa có spec) · `nextStepApplication` (nhóm phiếu đạt) dùng `stages[toStage].type` không kiểm `toStage < stages.length`: ứng viên ở vòng Interview **cuối cùng** của dãy (vòng sau không tồn tại) sẽ ném lỗi `Cannot read properties of undefined (reading 'type')` sau khi đã `findByIdAndUpdate` +1 vòng → trạng thái lưu nhưng request lỗi. Trường hợp thực tế hiếm (sau Interview thường còn Offer/Final).
+
+## Đã đổi theo commit mới
+
+- 2026-10-22 · aa1fe551a → 3ebed5507 · `schedule-groups.service.ts` — email-preview: preview giờ giữ `tenant`, `wiseu`, `metadata` của mẫu gốc cho mọi người phỏng vấn (trước chỉ người đầu có `original`); `To`/`mergeRecipients` chỉ gắn vào preview đầu tiên (đã ghi ở mục Nhóm lịch).
+- 2026-10-22 · aa1fe551a → 3ebed5507 · `evaluation-form-groups.service.ts` — populate `scheduleGroup` thêm `startTime endTime`; không đổi luật nghiệp vụ.

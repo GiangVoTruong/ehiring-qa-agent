@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../../flows/test';
 import { forceEnglish } from '../../flows/common';
 import * as rr from '../../flows/recruitment-requests';
 

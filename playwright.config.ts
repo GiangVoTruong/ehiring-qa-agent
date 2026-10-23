@@ -33,13 +33,12 @@ export default defineConfig({
     {
       name: 'e2e',
       testIgnore: /[\\/](unit|custom)[\\/]/,
-      dependencies: ['setup'],
-      use: { storageState: AUTH_STATE },
+      use: { storageState: AUTH_STATE }, // đăng nhập trong cửa sổ chạy (flows/test.ts), không phụ thuộc `setup`
     },
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
     // Quy trình tự soạn từ web: KHÔNG phụ thuộc `setup` (setup mở rồi đóng một trình duyệt riêng để đăng nhập);
     // dùng phiên đã lưu, hết hạn thì đăng nhập ngay trong cùng cửa sổ → chỉ MỘT cửa sổ Chrome suốt lượt chạy.
-    { name: 'procedure', testMatch: /custom[\\/](procedure|scratch|replay)\.spec\.ts/, use: { storageState: AUTH_STATE } },
+    { name: 'procedure', testMatch: /custom[\\/](procedure|scratch|replay|portal-fill)\.spec\.ts/, use: { storageState: AUTH_STATE } },
     { name: 'unit', testDir: 'tests/unit' },
     // Chỉ chạy khi user yêu cầu dọn dữ liệu: `npm run cleanup`.
     {

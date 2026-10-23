@@ -25,6 +25,7 @@ const ANALYSIS = () => ({
   recId: 'mock-rec', name: 'Tạo PATD', module: 'recruitment-plans', url: '/recruitment-plans', signature: 'POST /recruitment-plans', similar: [{ id: 2, name: 'Cập nhật PATD', score: 0.6, reason: 'tên gần giống' }],
   steps: REC_STEPS.map((s, i) => ({ i, text: s.text, effects: s.effects, toasts: s.toasts ?? [], notes: [], shot: null, dataChoice: !!s.act.dataChoice })),
   notes: ['Chọn mẫu đầu tiên trong danh sách'],
+  groups: [{ title: 'Vào trang /recruitment-plans', description: '', stepIndices: [0, 1], source: 'machine' }, { title: 'Lưu dữ liệu (POST /recruitment-plans)', description: 'Bắt đầu bằng vào trang /recruitment-plans/create/initial', stepIndices: [2, 3, 4, 5, 6], source: 'machine' }],
   facts: [
     { kind: 'default-value', statement: 'Trường «Person in charge» đã có sẵn giá trị khi form mở (chưa ai thao tác trên trường này).', status: 'Observed', evidence: [2], source: 'observed' },
     { kind: 'field-appears', statement: 'Sau «Chọn dữ liệu «Nhân viên kiểm thử»», 6 trường xuất hiện trên form: «Job title», «Number of recruitment», «Recruitment Method», «Request date», «Mô tả công việc», «Yêu cầu».', status: 'Observed', evidence: [4], source: 'observed' },
@@ -108,7 +109,7 @@ export async function handle(method, path, body) {
     case 'POST /api/rec/stop': { const r = rec; stopped = { id: r.id, name: r.name }; rec = null; return { id: r.id, name: r.name, durationSec: 14 }; }
     case 'GET /api/rec': return { id: 'mock-rec', name: stopped?.name || 'Tạo PATD', startedAt: new Date(T0).toISOString(), durationSec: 14, pages: 2, apis: ['POST /recruitment-plans'], notes: ['Chọn mẫu đầu tiên trong danh sách'], steps: REC_STEPS.map((s, i) => ({ ...s, kind: s.act.type, t: T0 + i * 2000 })) };
     case 'GET /api/rec/analysis': return ANALYSIS();
-    case 'POST /api/rec/analyze': await new Promise((r) => setTimeout(r, body.provider === 'none' ? 300 : 2500)); return { ...ANALYSIS(), ai: body.provider === 'none' ? null : AI };
+    case 'POST /api/rec/analyze': await new Promise((r) => setTimeout(r, 300)); return { ...ANALYSIS(), ai: null };
     case 'POST /api/flows/save': return { flowId: 1, version: 1, proposed: body.mode === 'version' };
     case 'GET /api/flows/list': return FLOWS;
     case 'GET /api/dashboard': return { flows: FLOWS.length, runs: 13, byStatus: { Passed: 9, Failed: 3, 'Needs review': 1 }, needVerification: [], recentFailures: [], openQuestions: 2, proposals: 1 };
@@ -123,6 +124,13 @@ export async function handle(method, path, body) {
     case 'POST /api/flow/run': return { runId: 'r-mock-1', id: 'job' };
     case 'GET /api/knowledge': return KNOW;
     case 'DELETE /api/credentials': return { ok: true };
+    case 'GET /api/flows': return { full: { ten: 'Luồng tuyển dụng đầy đủ: YCTD → kế hoạch', mo_ta: 'Một lần chạy đi hết luồng: tạo YCTD, duyệt, tạo kế hoạch, bắt đầu / tạm dừng / tiếp tục / đóng / gia hạn, rồi đóng YCTD.', tao: 'Tạo 1 YCTD + 1 kế hoạch; người duyệt = tài khoản QA; mọi mail chỉ về hộp thư QA', uoc: '~1,5–2 phút', steps: ['Tạo YCTD', 'Duyệt YCTD', 'Tạo kế hoạch', 'Bắt đầu kế hoạch'], branches: ['duyệt → Open', 'từ chối → bị từ chối'] },
+      flows: [{ id: 'y1', title: 'tạo → chờ duyệt, mã N#YY#NNN', nhom: 'Yêu cầu tuyển dụng (YCTD)', tao: 'Tạo 1 YCTD (người duyệt = tài khoản QA); mail chỉ về hộp thư QA', uoc: '~12–25 giây' }, { id: 'y2', title: 'duyệt cấp cuối → Open', nhom: 'Yêu cầu tuyển dụng (YCTD)', tao: 'Tạo 1 YCTD', uoc: '~12–25 giây' }], registry: 12, running: null };
+    case 'GET /api/procs': return [{ name: 'YCTD → kế hoạch', text: 'tạo YCTD\nduyệt\ntạo kế hoạch' }];
+    case 'POST /api/proc/parse': return { valid: true, steps: String(body.text || '').split(/\n|→/).map((x) => x.trim()).filter(Boolean).map((x) => ({ ok: !/xyz/.test(x), input: x, nhan: x, loi: 'chưa có thao tác này' })), actions: [{ id: 'yctd.tao', nhom: 'YCTD', nhan: 'Tạo YCTD (chờ duyệt)' }, { id: 'yctd.duyet', nhom: 'YCTD', nhan: 'Duyệt YCTD → Open' }, { id: 'kh.tao', nhom: 'Kế hoạch', nhan: 'Tạo kế hoạch tuyển dụng' }] };
+    case 'POST /api/run/stop': return { ok: true };
+    case 'POST /api/run': case 'POST /api/proc/run': case 'POST /api/portal/fill': return { id: 'job1' };
+    case 'GET /api/job': return { id: 'job1', ten: 'Yêu cầu tuyển dụng (YCTD) › tạo → chờ duyệt', status: 'running', started: Date.now() - 12000, durationSec: 12, log: 'Running 1 test', steps: [{ title: 'Tạo YCTD', status: 'ok', ms: 8200 }, { title: 'Duyệt YCTD', status: 'running' }], expected: ['Tạo YCTD', 'Duyệt YCTD', 'Tạo kế hoạch'], created: [], tests: [] };
     case 'POST /api/flow/ai': return { rules: 2, questions: 1, testCases: 1 };
     default: return {};
   }

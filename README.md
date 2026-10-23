@@ -40,7 +40,7 @@ npm test                 # chạy toàn bộ trên staging
 | `tests/custom/` | Chạy lại flow/quy trình do tester ghi từ web (`replay.spec.ts`, `procedure.spec.ts`) |
 | `tests/unit/` | Test logic nhỏ (không mở web) |
 | `tests/cleanup/` | **Dọn dữ liệu test** (chỉ chạy khi bạn gọi `npm run cleanup`) |
-| `web/` | Web nội bộ (`npm run web`): `server.mjs` định tuyến HTTP · `services.mjs` quay→phân tích→flow→chạy lại · `jobs.mjs` chạy test nền · `procedure.mjs` quy trình tự soạn · `recorder.mjs`/`qa-lib.mjs` ghi thao tác · `analysis.mjs` phân tích · `store.mjs` SQLite · `runlib.mjs` xác minh kết quả · `ai.mjs` Claude/Ollama · `navmap.mjs` học đường đi qua menu · `cleanup-all.mjs` dọn dữ liệu test · `config.mjs` cấu hình chung (cổng, đường dẫn) · `ui/` giao diện mới (Overview · Record & Learn · Test Flows · Test Runs · AI Knowledge · Settings; thêm `?mock=1` để xem dữ liệu mẫu) · `index.html` giao diện cũ, mở ở `/classic` |
+| `web/` | Web nội bộ (`npm run web`): `server.mjs` định tuyến HTTP · `services.mjs` quay→phân tích→flow→chạy lại · `jobs.mjs` chạy test nền · `procedure.mjs` quy trình tự soạn · `recorder.mjs`/`qa-lib.mjs` ghi thao tác · `analysis.mjs` phân tích · `store.mjs` SQLite · `runlib.mjs` xác minh kết quả · `navmap.mjs` học đường đi qua menu · `cleanup-all.mjs` dọn dữ liệu test · `config.mjs` cấu hình chung (cổng, đường dẫn) · `ui/` giao diện mới (Overview · Record & Learn · Test Flows · Test Runs · AI Knowledge · Settings; thêm `?mock=1` để xem dữ liệu mẫu) |
 | `scripts/purge-test-emails.mongosh.js` | Script xoá hẳn mail test trong DB (bạn tự chạy) |
 | `.claude/agents/` | 4 "trợ lý AI": `ehiring-learner` (học nghiệp vụ), `playwright-test-planner/generator/healer` (lập kế hoạch/viết/sửa test) |
 | `CLAUDE.md` | **Luật cho AI** (an toàn dữ liệu, không sửa eHiring…) |
@@ -67,18 +67,7 @@ Chạy `npm run web` rồi mở **http://127.0.0.1:4310** (chỉ truy cập đư
 
 > Lỗi `EADDRINUSE ... 4310`: web đã chạy sẵn (mở thẳng link trên) hoặc cổng bị tiến trình khác giữ. Tắt tiến trình cũ bằng `Get-NetTCPConnection -LocalPort 4310 | % { Stop-Process -Id $_.OwningProcess }` (PowerShell) hoặc đổi cổng: `set WEB_PORT=4311&& npm run web`.
 
-1. Tester **dán URL** trang eHiring (chỉ nhận `*.stg.ehiring.com.vn`) và **mô tả luồng** bằng lời của mình.
-2. Web mở trang bằng Chrome + tài khoản QA (**chỉ đọc**: mọi request ghi bị chặn) và đọc nút, cột bảng, trường nhập, ảnh chụp.
-3. Web tự nhận diện **luồng cũ hay mới** (không dùng AI):
-   - **Luồng cũ** (đã học sâu: YCTD, kế hoạch, ứng viên→phỏng vấn) → trả lời **từ tài liệu**, miễn phí, tức thì.
-   - **Luồng mới / đã đổi / mới học nông** → hiện nút **Phân tích bằng AI** (Ollama miễn phí ~vài phút, hoặc Claude ~30 giây, ~0,1 USD).
-4. AI nêu **khác gì luồng cũ** và đề xuất cập nhật. Bấm **Áp dụng vào tài liệu** để thêm mục vào `knowledge/*.md` (bản cũ sao lưu ở `knowledge/_history/`, ghi nhật ký `knowledge/_changes.md`) — lần sau luồng đó thành "luồng cũ".
-
-Nhận diện "mới": route chưa thuộc luồng đã học sâu, hoặc >30% từ mô tả chưa có trong tài liệu, hoặc ≥4 nhãn trên trang (chiếm >25%) tài liệu chưa nhắc.
-
-### Tab "Chạy luồng"
-
-**Một nút "▶ Chạy full luồng"** chạy cả luồng tuyển dụng từ đầu đến cuối (11 bước: tạo YCTD → duyệt → tạo kế hoạch → bắt đầu / tạm dừng / tiếp tục / đóng / gia hạn → đóng YCTD). Các bước hiện sẵn trước khi chạy; khi chạy mỗi bước đổi ⏳ → ✓ / ✗ kèm thời gian. Tích **"Chạy kèm các nhánh"** để chạy thêm 6 kịch bản YCTD (từ chối, huỷ, đã huỷ không duyệt được, đóng/mở lại…). Sau khi chạy xong có kết quả xanh/đỏ, dòng lỗi (nếu đỏ), **danh sách dữ liệu `[AUTOTEST]` vừa tạo**, log chi tiết, và **lịch sử các lượt chạy**. Có nút **Dừng**, tuỳ chọn **hiện cửa sổ Chrome**, nút **Dọn dữ liệu test**. Mục "Nâng cao" cho chạy riêng từng kịch bản. Tên các bước lấy thẳng từ `test.step` trong `tests/recruitment-plans/lifecycle.spec.ts` — đổi tên ở spec là đổi trên web.
+Tester tự thao tác trên Chrome, hệ thống ghi lại và phân tích bằng quy tắc của máy (không dùng AI), lưu thành flow có phiên bản rồi chạy lại để kiểm thử. Xem mục *Quay thao tác → chạy lại* bên dưới. Chạy toàn bộ luồng có sẵn và dọn dữ liệu test thì dùng lệnh `npm test` / `npm run cleanup`.
 
 ## Các lệnh dùng hằng ngày
 
@@ -107,6 +96,6 @@ Muốn **xem trình duyệt chạy**: `set SLOWMO=400&& npx playwright test --he
 - ⬜ Chưa có test cho: ứng viên, phỏng vấn, offer, portal, danh mục, phân quyền.
 - Mã nguồn: https://github.com/GiangVoTruong/ehiring-qa-agent (private, nhánh `feature-ehiring-qa-agent`).
 
-## Quay thao tác → AI học → chạy lại
+## Quay thao tác → chạy lại
 
-`npm run web` → tab **Ghi & học** / **Thư viện flow**. Tester tự thao tác, hệ thống ghi lại, phân tích (dữ kiện quan sát vs giả thuyết), lưu flow có phiên bản và chạy lại để kiểm thử. Kiến trúc, schema, quy trình AI, giới hạn: [docs/ai-testing-agent.md](docs/ai-testing-agent.md). Dữ liệu lưu ở `data/qa.db` (không commit).
+`npm run web` → tab **Ghi thao tác** / **Thư viện flow**. Tester tự thao tác, hệ thống ghi lại, phân tích (dữ kiện quan sát vs giả thuyết), lưu flow có phiên bản và chạy lại để kiểm thử. Kiến trúc, schema, giới hạn (phần AI trong tài liệu này đã gỡ khỏi code): [docs/ai-testing-agent.md](docs/ai-testing-agent.md). Dữ liệu lưu ở `data/qa.db` (không commit).

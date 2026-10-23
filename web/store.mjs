@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS questions (
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, flow_id INTEGER NOT NULL, version INTEGER NOT NULL, test_case_id INTEGER, started_at TEXT NOT NULL,
   finished_at TEXT, status TEXT NOT NULL, summary_json TEXT, params_json TEXT);
+CREATE TABLE IF NOT EXISTS flow_memory (
+  flow_id INTEGER NOT NULL, step_key TEXT NOT NULL, kind TEXT NOT NULL, data_json TEXT NOT NULL, hits INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL,
+  PRIMARY KEY (flow_id, step_key, kind, data_json));
 CREATE TABLE IF NOT EXISTS run_steps (
   run_id TEXT NOT NULL REFERENCES runs(id), idx INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL,
   classification TEXT, error TEXT, evidence_json TEXT, duration_ms INTEGER, PRIMARY KEY (run_id, idx));
@@ -87,6 +90,14 @@ export function openStore(file = 'data/qa.db') {
       q('UPDATE flows SET updated_at=? WHERE id=?').run(now(), flowId);
       return next;
     },
+    /** Đề xuất sau lượt chạy: flow đã có một bản đang chờ xác nhận thì ghi đè bản đó, không đẻ thêm bản mới mỗi lượt chạy. */
+    proposeVersion(flowId, data) {
+      const open = q("SELECT version FROM flow_versions WHERE flow_id=? AND state='proposed' ORDER BY version DESC LIMIT 1").get(flowId);
+      if (!open) return this.addVersion(flowId, data);
+      q('UPDATE flow_versions SET steps_json=?, expected_json=?, params_json=?, analysis_json=?, note=?, created_at=? WHERE flow_id=? AND version=?')
+        .run(j(data.steps), j(data.expected), j(data.params), j(data.analysis), data.note ?? '', now(), flowId, open.version);
+      return open.version;
+    },
     /** Chấp nhận một phiên bản đề xuất → thành bản đang dùng, bản cũ chuyển superseded (vẫn giữ lại). */
     acceptVersion(flowId, version) {
       const v = q('SELECT state FROM flow_versions WHERE flow_id=? AND version=?').get(flowId, version);
@@ -113,6 +124,14 @@ export function openStore(file = 'data/qa.db') {
       return runIds;
     },
 
+    // ---- Bộ nhớ luồng: cách xử lý đã thành công ở các lượt chạy trước (phần tử thay thế, hành động AI đã làm), lần sau dùng ngay ----
+    addMemory(flowId, items) {
+      const up = q('INSERT INTO flow_memory (flow_id,step_key,kind,data_json,hits,updated_at) VALUES (?,?,?,?,1,?) ON CONFLICT(flow_id,step_key,kind,data_json) DO UPDATE SET hits=hits+1, updated_at=excluded.updated_at');
+      for (const m of items) up.run(flowId, String(m.step_key), String(m.kind), JSON.stringify(m.data), now());
+    },
+    listMemory(flowId) {
+      return q('SELECT step_key,kind,data_json,hits FROM flow_memory WHERE flow_id=? ORDER BY hits DESC, updated_at DESC').all(flowId).map((r) => ({ step_key: r.step_key, kind: r.kind, hits: r.hits, data: JSON.parse(r.data_json) }));
+    },
     // ---- Quy tắc nghiệp vụ ----
     addRules(flowId, version, rules) {
       const ins = q('INSERT INTO rules (flow_id,version,kind,statement,status,evidence_json,source,created_at) VALUES (?,?,?,?,?,?,?,?)');

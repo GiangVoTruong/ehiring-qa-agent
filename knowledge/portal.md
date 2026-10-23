@@ -1,7 +1,7 @@
 ---
 flow: portal
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-11
+learnedCommit: 3ebed5507
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging) — portal https://tuyendung-shinhanbank.stg.ehiring.com.vn
 status: học từ code (chưa xem UI portal); CHƯA có flow/test
 sources:
@@ -24,7 +24,7 @@ Cổng riêng cho **ứng viên bên ngoài** (không đăng nhập Keycloak): x
 
 | Thao tác | API | Luật | Tác dụng phụ |
 | --- | --- | --- | --- |
-| Ứng tuyển vào kế hoạch | `POST /portals/talents/create` (có `recruitmentPlan`) | `basics` bắt buộc; kế hoạch phải tồn tại; kế hoạch `useDefaultPool` thì cần `website.defaultPool`; **luôn tạo talent MỚI** (không dò trùng email/điện thoại) rồi tạo application `in-progress` ở vòng 0 (không kiểm hồ sơ trùng); tên ghép từ họ/đệm/tên nếu thiếu `name` | Gắn nhiệm vụ checklist của kế hoạch (`lms`, `mof`…); phân tích CV nền (`parseCv`) nếu có file; **mail `CODE_TALENT_PORTAL` + `PORTAL_RECRUITMENT` cho ứng viên** (lỗi gửi bị nuốt) |
+| Ứng tuyển vào kế hoạch | `POST /portals/talents/create` (có `recruitmentPlan`) | `basics` bắt buộc; kế hoạch phải tồn tại; kế hoạch `useDefaultPool` thì cần `website.defaultPool`; **luôn tạo talent MỚI** (không dò trùng email/điện thoại) rồi tạo application `in-progress` ở vòng 0 (không kiểm hồ sơ trùng); tên ghép từ họ/đệm/tên nếu thiếu `name` | Gắn nhiệm vụ checklist của kế hoạch (`lms`, `mof`…); phân tích CV nền (`parseCv`) nếu có file — toàn văn CV lưu `cv-texts` làm `cv_text` cho chấm điểm AI, nhãn AI (`aiLabels`) của lần parse mới **thay hẳn** nhãn cũ, lỗi cập nhật talent từ kết quả AI chỉ ghi log warn; **mail `CODE_TALENT_PORTAL` + `PORTAL_RECRUITMENT` cho ứng viên** (lỗi gửi bị nuốt) |
 | Để lại thông tin (không ứng tuyển) | `POST /portals/talents/create` (không có kế hoạch) | Cần `website.defaultPool` | Tạo talent vào pool mặc định của website |
 | Ứng tuyển theo chiến dịch | `POST /portals/talents/create-for-campaign` | — | Mail `PORTAL_CAMPAIGN` |
 | Đăng ký / huỷ nhận mail tuyển dụng | `POST /portals/talents/subscribe-email-recruitment`, `.../unsubscribe-email-recruitment` | Tìm talent theo email; chưa có thì **tạo talent** (pool `send-email-recruitment`) và gắn tag `send-email-recruitment` | Talent có tag này **nhận mail tuyển dụng hàng loạt** từ `email-scheduler` |
@@ -36,6 +36,7 @@ Cổng riêng cho **ứng viên bên ngoài** (không đăng nhập Keycloak): x
 
 - Phiên OTP: ứng viên nhận mã qua mail (`CodeTalentPortal`, `VerificationCode` gửi lại theo yêu cầu) → đổi lấy phiên; endpoint nhạy cảm bị `ThrottlerGuard` + `BruteForceGuard`.
 - Dữ liệu ứng viên (CV, ảnh) tải qua `file-manager` của portal (`/api/portals/file-manager/:id`).
+- Domain portal và link công khai của tenant staging đã đổi sang `*.stg.talentx.vn` (`EHIRING_PUBLIC_URL`, `EHIRING_PORTAL_URL`, `EHIRING_EXTRA_INFO_URL`, `EHIRING_ONBOARDING_HANDBOOK_URL`, `EHIRING_DOMAINS` trong `tenant-settings.yaml`).
 
 ## Rủi ro cho kiểm thử
 
@@ -45,7 +46,8 @@ Cổng riêng cho **ứng viên bên ngoài** (không đăng nhập Keycloak): x
 
 ## Điểm chưa chắc
 
-- [ ] UI portal: trang chủ tuyển dụng, trang kế hoạch, form ứng tuyển (trường bắt buộc), trang OTP, trang bổ sung thông tin (`/extra-info/<code>`), trang lịch — **chưa xem** (domain `tuyendung-shinhanbank.stg.ehiring.com.vn`).
+- [ ] UI portal: trang chủ tuyển dụng, trang kế hoạch, form ứng tuyển (trường bắt buộc), trang OTP, trang bổ sung thông tin (`/extra-info/<code>`), trang lịch — **chưa xem** (domain `tuyendung-shinhanbank.stg.talentx.vn`) — nguồn đã xem: tenant-settings.yaml.
+- [ ] Domain cũ `*.stg.ehiring.com.vn` còn phục vụ được không sau khi đổi sang `talentx.vn`? — nguồn đã xem: tenant-settings.yaml.
 - [ ] Có bắt buộc CAPTCHA/OTP khi ứng tuyển không (code không thấy)?
 - [ ] Ứng tuyển trùng email: tạo talent mới mỗi lần — nhưng `EHIRING_TALENT_IDS_VALIDATE` (email hoặc điện thoại) có chặn ở nơi khác (UI portal gọi validate)?
 - [ ] Chiến dịch (`campaigns`): luồng riêng — chưa đọc.
@@ -55,3 +57,8 @@ Cổng riêng cho **ứng viên bên ngoài** (không đăng nhập Keycloak): x
 
 - 2026-10-11 · (code, chưa có spec) · `POST /portals/talents/create` kèm `recruitmentPlan` không dò talent trùng và không kiểm hồ sơ trùng: **cùng một email ứng tuyển hai lần ⇒ hai talent và hai application song song**, và vì `createByTalent` (luồng nội bộ) cấm một ứng viên có hai hồ sơ `in-progress`, hai luồng áp luật khác nhau.
 - 2026-10-11 · (code, chưa có spec) · `rejectSchedule` (portal) đặt `status=canceled` và gửi mail huỷ cho người phỏng vấn mà **không kiểm lịch đã `done`/`canceled`** — ứng viên (có phiên OTP) từ chối lại một lịch đã hoàn tất vẫn đổi trạng thái về `canceled`, và gửi lại mail huỷ.
+
+## Đã đổi theo commit mới
+
+- 2026-10-22 · aa1fe551a → 3ebed5507 · `tenant-settings.yaml`: domain staging shinhanbank đổi từ `*.stg.ehiring.com.vn` sang `*.stg.talentx.vn` (portal, public, handbook, EHIRING_DOMAINS); đã sửa URL portal trong frontmatter và bảng thao tác.
+- 2026-10-22 · aa1fe551a → 3ebed5507 · `talents.service.ts`: parse CV nền lưu toàn văn vào `cv-texts` (`cv_text`), nhãn AI (`aiLabels`) của lần parse mới thay hoàn toàn nhãn cũ; log lỗi AI có thêm `code`/`providerCode`. Đã bổ sung vào dòng «Ứng tuyển vào kế hoạch».

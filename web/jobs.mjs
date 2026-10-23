@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROOT } from './config.mjs';
+import { ALLOWED_HOST, ROOT } from './config.mjs';
 
 // ---------- Chạy luồng (danh mục cố định, không nhận lệnh tuỳ ý) ----------
 const PW_CLI = join(ROOT, 'node_modules', '@playwright', 'test', 'cli.js');
@@ -56,8 +56,12 @@ try {
   if (existsSync(RUNS_FILE)) for (const j of JSON.parse(readFileSync(RUNS_FILE, 'utf8'))) jobs.set(j.id, { ...j, status: j.status === 'running' ? 'stopped' : j.status });
 } catch { /* bỏ qua */ }
 
+// Lượt chạy đã ra kết quả (##RUN) nhưng tiến trình còn giữ cửa sổ Chrome để tester xem màn hình lỗi: coi như đã xong, không bắt chờ đóng cửa sổ.
+const RUN_DONE = /##RUN\|[^|\n]*\|([A-Za-z ]+)/;
+const finishedHolding = (j) => RUN_DONE.test(j.log);
 export function startJob({ id, ten, args, env = {} }) {
-  if (current && current.status === 'running') throw new Error(`Đang chạy "${current.ten}" — chờ xong hoặc bấm Dừng.`);
+  if (current && current.status === 'running' && finishedHolding(current)) { try { current.child?.kill(); } catch { /* đã thoát */ } }
+  else if (current && current.status === 'running') throw new Error(`Đang chạy "${current.ten}" — chờ xong hoặc bấm Dừng.`);
   const job = { id: String(Date.now()), flowId: id, ten, status: 'running', log: '', started: Date.now(), ended: null, exit: null, created: [], summary: '' };
   const before = new Set(readRegistry().map((e) => e.id));
   const child = spawn(process.execPath, args[0]?.endsWith('.mjs') ? args : [PW_CLI, ...args], { cwd: ROOT, env: { ...process.env, FORCE_COLOR: '0', PW_OUTPUT_DIR: 'test-results-web', ...env }, windowsHide: true });
@@ -108,8 +112,10 @@ export function resumeInfo(j) {
 
 export function publicJob(j) {
   const { child, procSteps, ...rest } = j;
+  const run = j.status === 'running' && j.log.match(RUN_DONE); // đã có kết quả, chỉ còn giữ cửa sổ
   return {
     ...rest,
+    ...(run ? { status: run[1].trim() === 'Failed' ? 'failed' : 'passed', holdingWindow: true } : {}),
     resume: resumeInfo(j),
     log: j.log.split('\n').filter((l) => !l.startsWith('##')).join('\n'),
     ...parseProgress(j.log),
@@ -117,7 +123,7 @@ export function publicJob(j) {
   };
 }
 
-const FULL_SPEC = 'tests/recruitment-plans/lifecycle.spec.ts';
+const FULL_SPEC = 'tests/recruitment-plans/plan-only.spec.ts';
 const BRANCH_SPEC = 'tests/recruitment-requests/lifecycle.spec.ts';
 export const REPORTERS = '--reporter=list,./web/step-reporter.mjs';
 
@@ -128,12 +134,12 @@ export function fullFlow() {
   const branchSrc = existsSync(join(ROOT, BRANCH_SPEC)) ? readFileSync(join(ROOT, BRANCH_SPEC), 'utf8') : '';
   const branches = [...branchSrc.matchAll(/^test\(\s*['"`]([^'"`]+)['"`]/gm)].map((m) => m[1]);
   return {
-    ten: 'Luồng tuyển dụng đầy đủ: YCTD → kế hoạch',
-    mo_ta: 'Một lần chạy đi hết luồng: tạo YCTD, duyệt, tạo kế hoạch, bắt đầu / tạm dừng / tiếp tục / đóng / gia hạn, rồi đóng YCTD.',
-    tao: 'Tạo 1 YCTD + 1 kế hoạch [AUTOTEST]; người duyệt/TA Admin/người phụ trách = tài khoản QA; mọi mail chỉ về hộp thư QA',
-    uoc: '~1,5–2 phút',
+    ten: 'Luồng PATD: tạo kế hoạch tuyển dụng',
+    mo_ta: 'Dùng lại một YCTD [AUTOTEST] đang Open có sẵn (không tạo YCTD mới), tạo kế hoạch rồi bắt đầu / tạm dừng / tiếp tục / đóng / gia hạn.',
+    tao: 'Chỉ tạo 1 kế hoạch [AUTOTEST]; người phụ trách/phỏng vấn/duyệt cuối = tài khoản QA. Cần có sẵn YCTD Open (chạy tab YCTD trước nếu chưa có).',
+    uoc: '~1 phút',
     steps,
-    branches,
+    branches: [],
   };
 }
 
@@ -157,6 +163,20 @@ export function runFlow({ id, headed, branches }) {
   if (!item) throw new Error('Luồng không có trong danh mục');
   const args = ['test', '--project=e2e', item.file, '-g', escapeRegex(item.title), REPORTERS, ...(headed ? ['--headed'] : [])];
   return startJob({ id, ten: `${item.nhom} › ${item.title}`, args, env: headed ? { SLOWMO: '300' } : {} });
+}
+
+/** Mở một link form "Bổ sung thông tin" của cổng ứng viên và điền dữ liệu giả lập giống thật. Chỉ nhận link https của staging, đường dẫn /extra-info/<mã>. */
+export function runPortalFill({ url, submit }) {
+  let u;
+  try { u = new URL(String(url ?? '').trim()); } catch { throw new Error('Link không hợp lệ — dán cả địa chỉ, bắt đầu bằng https://'); }
+  if (u.protocol !== 'https:' || !ALLOWED_HOST.test(u.hostname)) throw new Error('Chỉ nhận link của môi trường staging (…stg.ehiring.com.vn hoặc …stg.talentx.vn).');
+  if (!/\/extra-info\/[\w-]+/.test(u.pathname)) throw new Error('Đây không phải link form Bổ sung thông tin (đường dẫn phải có /extra-info/<mã>).');
+  const job = startJob({
+    id: 'portal-fill', ten: `Điền form Bổ sung thông tin${submit ? ' và gửi' : ''}`,
+    args: ['test', '--project=procedure', 'tests/custom/portal-fill.spec.ts', REPORTERS, '--headed'],
+    env: { QA_PORTAL_URL: u.href, QA_PORTAL_SUBMIT: submit ? '1' : '0', SLOWMO: '0', QA_FULLSCREEN: '1' },
+  });
+  return job;
 }
 
 export function runCleanup() {

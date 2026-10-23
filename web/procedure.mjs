@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ask } from './ai.mjs';
 import { BASE_URL, ROOT } from './config.mjs';
 import { REPORTERS, jobs, resumeInfo, startJob } from './jobs.mjs';
 
@@ -134,36 +133,6 @@ export function resumeProcedure({ id, headed }) {
   return runProcedure({ text, headed });
 }
 
-
-// AI hiểu mô tả tự do → ghép vào danh mục thao tác có sẵn. AI chỉ được CHỌN id trong ACTIONS; bước không khớp → id null (chưa có flow).
-export async function interpretProcedure({ text, provider = 'claude' }) {
-  if (!text?.trim()) throw new Error('Chưa nhập quy trình');
-  const catalog = ACTIONS.map((a) => `- ${a.id}: ${a.nhan}`).join('\n');
-  const prompt = `Tester mô tả một quy trình test trên eHiring bằng lời tự do. Hãy tách thành các bước theo đúng thứ tự và gán mỗi bước vào MỘT thao tác trong danh mục tự động hoá bên dưới. Bước nào KHÔNG có thao tác tương ứng (ví dụ thêm ứng viên, chuyển vòng hồ sơ, lấy link đánh giá…) thì id = null — tuyệt đối không ép vào thao tác gần giống.
-
-# Danh mục thao tác đã có
-${catalog}
-
-# Mô tả của tester
-${text}
-
-Chỉ trả về MỘT đối tượng JSON, không văn bản ngoài:
-{"giai_thich":"1-2 câu bạn hiểu quy trình là gì","buoc":[{"input":"đoạn gốc của tester","id":"id thao tác hoặc null","ghi_chu":"vì sao / thiếu gì"}]}`;
-  const { result, cost, model } = await ask(prompt, provider);
-  let parsed;
-  try { parsed = JSON.parse(result.slice(result.indexOf('{'), result.lastIndexOf('}') + 1)); }
-  catch { throw new Error('AI trả về không đọc được, thử lại hoặc gõ lại rõ hơn.'); }
-  const steps = (parsed.buoc ?? []).map((b) => {
-    const a = ACTIONS.find((x) => x.id === b.id);
-    return { input: String(b.input ?? ''), id: a?.id ?? null, nhan: a?.nhan, ghi_chu: b.ghi_chu ?? '' };
-  });
-  const supported = steps.filter((s) => s.id);
-  // Dùng lại câu gốc của tester (giữ mã/link kế hoạch), kiểm tra lại thứ tự; id phải trùng với AI chọn.
-  const text2 = supported.map((s) => s.input).join('\n');
-  const proposal = parseProcedure(text2);
-  const same = proposal.steps.length === supported.length && proposal.steps.every((s, i) => s.id === supported[i].id);
-  return { provider, model, cost, giai_thich: parsed.giai_thich ?? '', steps, unsupported: steps.filter((s) => !s.id), text: text2, valid: proposal.valid && same && supported.length > 0, order: proposal.steps };
-}
 
 export const readProcs = () => (existsSync(PROCS_FILE) ? JSON.parse(readFileSync(PROCS_FILE, 'utf8')) : []);
 export function saveProc({ name, text }) {

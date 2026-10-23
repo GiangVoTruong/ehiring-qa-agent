@@ -1,7 +1,7 @@
 ---
 flow: offers-and-onboarding
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-11
+learnedCommit: 18a92007b
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging)
 status: học từ code (chưa xem UI); CHƯA có flow/test
 sources:
@@ -43,7 +43,7 @@ Các vòng sau phỏng vấn của một application: **TalentUpdating** (ứng 
 - Ứng viên điền thông tin ở **portal** (form `portal-talent-extra-info`), dữ liệu lưu theo **section** (`basics`, `education`, `experience`, `skills`, `training-course`, …) vào `talent-extra-info` gắn application.
 - `TalentExtraInfoStatus`: `pending` · `approved` · `rejected` — mỗi section; người duyệt (cán bộ TA) review từng **card** của form.
 - `POST /applications/:id/talent-extra-info/status` (mảng `{id,status,note}`): cần quyền vòng; **section đã `approved` không được đổi** (`assertApprovedSectionsUntouched`); có section `rejected` → application quay về cập nhật + **gửi lại mail yêu cầu bổ sung cho ứng viên** (`RESEND_TALENT_ADVANCED_INFO`). Cờ tenant `ACCEPT_INFO_OVERRIDE_BASICS=true` → duyệt section `basics` **ghi đè thông tin cơ bản của talent**.
-- `POST /applications/:id/talent-extra-info/onboarding-email`: gửi **hai mail** `TALENT_INFO_APPROVED_MANAGER` + `TALENT_INFO_APPROVED_ONBOARDING` **một lần** (`onboardingEmailSentAt`); từ chối nếu thông tin bị reject (`TALENT_ONBOARDING_EMAIL_REJECTED`) hoặc chưa tới vòng (`..._STAGE_NOT_REACHED`).
+- `POST /applications/:id/talent-extra-info/onboarding-email`: gửi **hai mail** `TALENT_INFO_APPROVED_MANAGER` + `TALENT_INFO_APPROVED_ONBOARDING` **mỗi lần được gọi** (mỗi lần dùng nonce `Date.now()` nên không còn chống gửi trùng; ghi `onboardingEmailSentAt` mỗi lần); từ chối nếu thông tin bị reject (`TALENT_ONBOARDING_EMAIL_REJECTED`) hoặc chưa tới vòng (`..._STAGE_NOT_REACHED`). Trạng thái: đã có `onboardingEmailSentAt` và application không `REJECTED` → `canSend: true` kèm `sentAt` (trước đây `canSend: false`).
 - `talent-advanced-info`: dữ liệu thông tin nâng cao ứng viên đã điền (link gửi bằng `TALENT_ADVANCED_INFO`).
 
 ## Checklist (và ký hợp đồng / vòng cuối)
@@ -61,8 +61,13 @@ Các vòng sau phỏng vấn của một application: **TalentUpdating** (ứng 
 - [ ] `cancelOffer` không kiểm trạng thái nguồn (đã `signed-and-published`, `cancelled`?).
 - [ ] ContractSigning: luật riêng (route `/contract-signing`), liên quan tích hợp ký điện tử — chưa đọc.
 - [ ] Mẫu mail ứng viên (offer letter, TalentAdvancedInfo, onboarding): nội dung & autoSend theo kế hoạch.
+- [ ] Gửi onboarding nhiều lần sẽ gửi lại hai mail mỗi lần (không còn guard `onboardingEmailSentAt`): đây có chủ đích không, và UI/backend có giới hạn số lần không? — nguồn đã xem talent-extra-info.service.ts
 
 ## Nghi bug
 
 - 2026-10-11 · (code, chưa có spec) · `handleActionByTalentAcquisition` nhánh `APPROVED`: `if (!offer?.content?.fileSalary) return;` trả `undefined` (không `rs`) cho offer **không có file lương** → API trả body rỗng dù đã cập nhật; chỉ offer có `fileSalary` mới trả `rs`. Hành vi trả về không nhất quán.
 - 2026-10-11 · (code, chưa có spec) · `approve` cấp cuối khi offer **không còn node pending** ném 400 nhưng `approve` trên offer `rejected`/`cancelled` mà còn node pending (ví dụ từ chối bởi TA rồi cấp sau vẫn `pending`) vẫn ghi được `status=approved` — backend không kiểm `status` offer trước khi duyệt (cùng họ nghi bug YCTD đã huỷ vẫn duyệt được).
+
+## Đã đổi theo commit mới
+
+- 18a92007b (`talent-extra-info.service.ts`): gửi mail onboarding không còn một lần — bỏ early-return theo `sentAt`, bỏ điều kiện `onboardingEmailSentAt: {$exists:false}`, thêm nonce `Date.now()` vào `sendEmailsOnce`; `canSend` đổi từ `false` sang `true` khi đã gửi (trừ application `REJECTED`).

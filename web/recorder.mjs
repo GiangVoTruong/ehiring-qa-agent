@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { AUTH_API } from './analysis.mjs';
 import { makeLib } from './qa-lib.mjs';
+import { signInIfNeeded, totpSecretFor } from './auto-login.mjs';
 
 // Chạy trong trang (addInitScript) — dùng window.__qaLib (web/qa-lib.mjs). Gửi sự kiện qua __qaRec.
 export function injected() {
@@ -26,7 +27,12 @@ export function injected() {
   const snapSoon = () => { clearTimeout(snapTimer); snapTimer = setTimeout(() => send(document.body, { type: 'snap', snap: L().snapshot() }), 700); };
   document.addEventListener('click', (ev) => {
     const raw = ev.target; if (!(raw instanceof Element) || raw.matches('input[type=password]')) return;
-    const { _el, ...d } = L().describeClick(raw);
+    const { _el, _pin, ...d } = L().describeClick(raw);
+    if (d.picker) {
+      // Chọn ngày trong lịch = nhập ngày vào ô: ghi lại GIÁ TRỊ cuối cùng của ô như một bước nhập, bỏ các cú bấm điều hướng lịch.
+      if (d.picker.date && _pin) setTimeout(() => { const dd = L().describeInput(_pin); send(_pin, { type: 'input', value: L().short(_pin.value, 200), input: 'text', secret: false, ...dd }); snapSoon(); }, 300);
+      return;
+    }
     send(_el, { type: 'click', ...d });
     snapSoon();
   }, true);
@@ -39,6 +45,25 @@ export function injected() {
     const secret = type === 'password' || /pass|mật khẩu|token|secret|otp|cvv|mã bảo mật/i.test(`${d.field} ${el.name || ''} ${el.id || ''} ${el.autocomplete || ''}`);
     const value = secret ? '***' : type === 'file' ? [...el.files].map((f) => f.name).join(', ') : el.value;
     send(el, { type: type === 'file' ? 'file' : 'input', value: L().short(value, 200), input: type, secret, ...d });
+    snapSoon();
+  }, true);
+  // Kéo thả (thẻ ứng viên sang cột khác…): ghi phần tử được kéo, phần tử thả vào và vector kéo. Chỉ tính khi kéo xa hơn 12px.
+  let drag = null;
+  document.addEventListener('pointerdown', (ev) => {
+    const raw = ev.target;
+    if (ev.button !== 0 || !(raw instanceof Element)) { drag = null; return; }
+    const el = raw.closest('[cdkdrag], [cdkdraghandle], .cdk-drag, [draggable=true]');
+    // Mô tả thẻ NGAY KHI BẤM XUỐNG (trước khi thư viện tạo bản xem trước gắn vào body) + cột chứa nó.
+    const desc = (e) => ({ text: L().short(e.innerText || e.textContent || '', 40), sel: L().pathOf(e), tag: e.tagName.toLowerCase() });
+    drag = el ? { el, x: ev.clientX, y: ev.clientY, from: desc(el), fromList: el.closest('[cdkdroplist], .cdk-drop-list')?.id || '' } : null;
+  }, true);
+  document.addEventListener('pointerup', (ev) => {
+    const f = drag; drag = null;
+    if (!f || Math.hypot(ev.clientX - f.x, ev.clientY - f.y) < 12) return;
+    const to = document.elementFromPoint(ev.clientX, ev.clientY);
+    const desc = (e) => ({ text: L().short(e.innerText || e.textContent || '', 40), sel: L().pathOf(e), tag: e.tagName.toLowerCase() });
+    const toList = to?.closest('[cdkdroplist], .cdk-drop-list')?.id || '';
+    send(f.el, { type: 'drag', from: f.from, fromList: f.fromList, toList, to: to ? desc(to) : null, dx: Math.round(ev.clientX - f.x), dy: Math.round(ev.clientY - f.y), vw: window.innerWidth, vh: window.innerHeight });
     snapSoon();
   }, true);
   const timers = new WeakMap();
@@ -77,7 +102,7 @@ export function loginFlags(items) {
   let inLogin = false;
   return items.map((e) => {
     if (e.type === 'nav') { inLogin = LOGIN_URL.test(e.path ?? e.url ?? ''); return inLogin; }
-    if (!['click', 'input', 'file', 'key', 'scroll'].includes(e.type)) return false;
+    if (!['click', 'input', 'file', 'key', 'scroll', 'drag'].includes(e.type)) return false;
     if (isLoginStep(e, e.url)) { inLogin = true; return true; }
     return inLogin;
   });
@@ -100,6 +125,7 @@ export function buildSteps(events) {
     if (e.type === 'nav' && (e.path.startsWith('/auth/') || e.path === prev?.url || (e.path === '/' && out.length))) continue; // chuyển hướng đăng nhập/lặp
     if (e.type === 'click' && e.isTextInput && !/select|picker/.test(e.tag)) continue; // bấm vào ô nhập: ghi nhận khi nhập xong
     if (e.type === 'click' && !e.text && !e.field && !e.input && !e.role && /^(body|html)$/.test(e.tag)) continue; // bấm vào khoảng trống
+    if (e.type === 'click' && !e.dataChoice && prev?.act?.type === 'click' && prev.act.sel === e.sel && prev.act.text === e.text && e.t - prev.t < 1200) continue; // bấm đúp cùng một nút: lần 2 sẽ đóng lại menu vừa mở
     if (e.type === 'input' && prev?.kind === 'input' && prev.field === e.field) { prev.value = e.value; prev.t = e.t; continue; }
     if (e.type === 'scroll') {
       if (e.top === 0 && !prev) continue;
@@ -140,6 +166,7 @@ export function buildSteps(events) {
     else if (e.type === 'input') text = `Nhập «${e.value}» vào «${e.field || 'ô không nhãn'}»${where}${e.enter ? ', rồi nhấn Enter' : ''}`;
     else if (e.type === 'file') text = `Tải file «${e.value}» vào «${e.field || 'ô tải file'}»${where}`;
     else if (e.type === 'key') text = `Nhấn phím ${e.key}${e.field ? ` ở «${e.field}»` : ''}`;
+    else if (e.type === 'drag') text = `Kéo «${e.from?.text || e.from?.tag}» sang «${e.to?.text || e.to?.tag || 'vị trí mới'}»${where}`;
     else if (e.input === 'checkbox' || e.input === 'radio') text = `Chọn/đổi «${e.text}»${where}`;
     else if (e.role === 'option' || e.tag === 'li') text = `Chọn «${e.text}»${where}`;
     else if (e.dataChoice) text = `Chọn dữ liệu «${e.text}»${e.dataField ? ` ở «${e.dataField}»` : ''}${where} (dữ liệu có thể khác)`;
@@ -149,8 +176,8 @@ export function buildSteps(events) {
     else if (!e.text && e.field) text = `Mở ô chọn «${e.field}»${where}`;
     else text = `Bấm «${e.text || e.role || e.tag}»${where}`;
     if (prev && prev.text === text && e.t - prev.t < 800) continue; // sự kiện lặp
-    const { type, tag, role, input, text: label, ctx, sel, nth, key, enter, path, dataChoice, dataField, menu, menuGroup, menuToggle, siderCollapsed, login } = e;
-    out.push({ kind: e.type, t: e.t, url: e.url, field: e.field, value: e.value, text, effects: [], shot: e.shot, before: [...out].reverse().find((x) => x.after)?.after, act: { login, testid: e.testid, aria: e.aria, secret: e.secret, dataChoice, dataField, menu, menuGroup, menuToggle, siderCollapsed, type, tag, role, input, text: label, field: e.field, value: e.value, ctx, sel, nth, key, enter, path } });
+    const { type, tag, role, input, text: label, ctx, sel, nth, key, enter, path, dataChoice, dataField, menu, menuGroup, menuToggle, siderCollapsed, login, picker, vw, vh, from, to, dx, dy, fromList, toList } = e;
+    out.push({ kind: e.type, t: e.t, url: e.url, field: e.field, value: e.value, text, effects: [], shot: e.shot, before: [...out].reverse().find((x) => x.after)?.after, act: { login, testid: e.testid, aria: e.aria, secret: e.secret, dataChoice, dataField, menu, menuGroup, menuToggle, siderCollapsed, type, tag, role, input, text: label, field: e.field, value: e.value, ctx, sel, nth, key, enter, path, picker, vw, vh, from, to, dx, dy, fromList, toList } });
   }
   return out;
 }
@@ -193,7 +220,7 @@ export function createRecorder({ ROOT, BASE_URL, ALLOWED_HOST, CRED_FILE, USER_S
 
   /** Chụp màn hình làm bằng chứng (ảnh JPEG nhỏ). Không chặn thao tác của tester; tối đa 1 ảnh / 0,6s. */
   function shoot(r, page, e) {
-    if (!['click', 'input', 'file', 'nav'].includes(e.type) || Date.now() - (r.lastShot ?? 0) < 600) return;
+    if (!['click', 'input', 'file', 'nav', 'drag'].includes(e.type) || Date.now() - (r.lastShot ?? 0) < 600) return;
     r.lastShot = Date.now();
     const name = `${++r.shotN}.jpg`;
     e.shot = name;
@@ -205,12 +232,14 @@ export function createRecorder({ ROOT, BASE_URL, ALLOWED_HOST, CRED_FILE, USER_S
     r.credSaving = true;
     try {
       for (let i = 0; ; i++) {
-        if (await page.evaluate(() => !!sessionStorage.getItem('0-ehiring')).catch(() => false)) break;
+        if (await page.evaluate(() => !!(localStorage.getItem('ehiring_sso_session_token') || sessionStorage.getItem('0-ehiring'))).catch(() => false)) break;
         if (i >= 40) throw new Error('chưa đăng nhập xong');
         await new Promise((res) => setTimeout(res, 500));
       }
       mkdirSync(dirname(CRED_FILE), { recursive: true });
-      writeFileSync(CRED_FILE, JSON.stringify({ username: r.cred.username, password: r.cred.password, savedAt: new Date().toISOString(), host: new URL(BASE_URL).host }, null, 1));
+      let old = {}; try { old = JSON.parse(readFileSync(CRED_FILE, 'utf8')); } catch { /* chưa có */ }
+      const keep = old.username === r.cred.username ? { ...(old.totpSecret ? { totpSecret: old.totpSecret } : {}), ...(old.local ? { local: true } : {}) } : {};
+      writeFileSync(CRED_FILE, JSON.stringify({ username: r.cred.username, password: r.cred.password, ...keep, savedAt: new Date().toISOString(), host: new URL(BASE_URL).host }, null, 1));
       await context.storageState({ path: USER_STATE });
       writeFileSync(USER_SESSION, await page.evaluate(() => JSON.stringify(sessionStorage)));
       r.credSaved = true; r.credUser = r.cred.username;
@@ -236,7 +265,7 @@ export function createRecorder({ ROOT, BASE_URL, ALLOWED_HOST, CRED_FILE, USER_S
     live = r;
     browser.on('disconnected', () => { if (live === r) finish().catch(() => undefined); }); // tester tự đóng cửa sổ = dừng quay
     await context.exposeBinding('__qaRec', (source, e) => {
-      if (e.type === 'cred') { r.cred = { username: String(e.username), password: String(e.password) }; return; } // không bao giờ vào bản quay
+      if (e.type === 'cred') { if (r.autoLogin) return; r.cred = { username: String(e.username), password: String(e.password) }; return; } // không bao giờ vào bản quay
       if (r.paused) return;
       shoot(r, source.page, e);
       if (!r.events.length || r.events[r.events.length - 1].t <= e.t) r.events.push(e);
@@ -264,8 +293,24 @@ export function createRecorder({ ROOT, BASE_URL, ALLOWED_HOST, CRED_FILE, USER_S
     context.on('page', hook);
     const page = await context.newPage();
     hook(page);
-    await page.goto(target.href, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
-    return { id, name: r.name };
+    // Đã nhớ tài khoản: tự đăng nhập (kể cả mã OTP) ngay khi mở, KHÔNG ghi các bước này vào bản quay; lỗi thì để tester tự đăng nhập.
+    // Chưa nhớ tài khoản riêng của tester nhưng .env có tài khoản QA → vẫn tự đăng nhập bằng tài khoản đó (không ghi nhớ nó như tài khoản của tester).
+    const { QA_USERNAME, QA_PASSWORD } = process.env;
+    let autoCreds = null;
+    if (useSaved) { const j = JSON.parse(readFileSync(CRED_FILE, 'utf8')); autoCreds = { username: j.username, password: j.password, local: j.local === true, totpSecret: j.totpSecret }; }
+    else if (!relogin && QA_USERNAME && QA_PASSWORD) autoCreds = { username: QA_USERNAME, password: QA_PASSWORD, local: process.env.QA_LOGIN_LOCAL === '1' };
+    if (autoCreds) {
+      r.paused = true; r.autoLogin = true;
+      try {
+        await page.goto(target.href, { waitUntil: 'domcontentloaded' });
+        if (await signInIfNeeded(page, { ...autoCreds, totpSecret: autoCreds.totpSecret || totpSecretFor(autoCreds.username) })) {
+          if (useSaved) { await context.storageState({ path: USER_STATE }); writeFileSync(USER_SESSION, await page.evaluate(() => JSON.stringify(sessionStorage))); }
+          await page.goto(target.href, { waitUntil: 'domcontentloaded' }).catch(() => undefined); // về đúng trang cần quay
+        }
+      } catch (e) { r.loginError = String(e.message).split(String.fromCharCode(10))[0]; }
+      finally { r.events.length = 0; r.paused = false; r.autoLogin = false; r.startedAt = Date.now(); r.resumedAt = Date.now(); r.activeMs = 0; } // đồng hồ và bước chỉ tính từ lúc đã đăng nhập xong
+    } else await page.goto(target.href, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    return { id, name: r.name, loginError: r.loginError ?? '' };
   }
 
   const pause = () => { if (live && !live.paused) { live.activeMs += Date.now() - live.resumedAt; live.paused = true; } return status(); };

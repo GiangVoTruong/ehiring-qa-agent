@@ -1,7 +1,7 @@
 ---
 flow: recruitment-requests
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-10
+learnedCommit: 3ebed5507
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging)
 sources:
   - libs/models/src/recruitment-request/recruitment-request.{vm,schema}.ts
@@ -28,7 +28,7 @@ stateDiagram-v2
   PENDING --> OPEN: duyệt cấp cuối
   PENDING --> DELETE: từ chối (bất kỳ cấp nào)
   PENDING --> CANCEL: huỷ
-  OPEN --> CLOSE: đóng
+  OPEN --> CLOSE: đóng (tay hoặc tự động)
   CLOSE --> OPEN: mở lại
 ```
 
@@ -43,7 +43,8 @@ stateDiagram-v2
 
 - Chuyển trạng thái sai → `400 Invalid status transition`. Huỷ không đủ quyền → `403`.
 - Không có đường nào từ `DELETE` (bị từ chối) hay `CANCEL` sang trạng thái khác qua `change-status`.
-- **Đã huỷ thì không được duyệt / từ chối nữa** (user chốt 2026-10-10). UI tab chờ duyệt lọc `statusCO = '3'` nên YCTD đã huỷ biến khỏi danh sách duyệt; nhưng backend `handleApprovalTree` **không kiểm tra `statusCO`** → xem _Nghi bug_.
+- **Tự đóng**: khi số hồ sơ `isEmployee` đạt `quantity` của YCTD, job-scheduler tự đóng YCTD qua cùng luồng đóng. Config `AUTO_CLOSE_ON_QUOTA` có `enabled: true` trên shinhanbank.
+- **Đã huỷ thì không được duyệt / từ chối nữa** (user chốt 2026-10-10). UI tab chờ duyệt lọc `statusCO = '3'` nên YCTD đã huỷ biến khỏi danh sách duyệt. Từ 3ebed5507, pipeline danh sách có `approverTree` cũng loại `statusCO = '4'`. Nhưng handler `approve`/`reject` **không kiểm tra `statusCO`** → xem _Nghi bug_.
 - Duyệt theo **thứ tự**: chỉ node `pending` đầu tiên được xử lý; người không thuộc node đó → `400 User is not in the approver list`. Không còn node pending → `400 No pending approval found`.
 
 **Nhãn trên UI danh sách (tiếng Anh)**: cột duyệt hiện tên người duyệt khi đang chờ / `Approved`; cột trạng thái `Waiting` (PENDING), `Open`, `Cancelled`, `Reject` (kèm lý do ở cột "Reason for reject").
@@ -100,23 +101,34 @@ stateDiagram-v2
 | Duyệt cấp giữa | Người duyệt node pending kế tiếp | Email + in-app (pending approval, theo step) |
 | Duyệt cấp cuối / từ chối | `requestedBy` (người tạo/HM) | Approval completed |
 | Duyệt cấp cuối | Tất cả `assignTo` | Approved notify |
-| Đóng | **Chỉ `requestedBy`** (người tạo), không cc. Comment code ghi "recipient assignTo, cc requestedBy" nhưng code gửi cho requestedBy. Cần mail template `RecruitmentRequestClosed` `private: true` của tenant — seed shinhanbank **không có** → có thể không gửi (lỗi bị nuốt, đóng vẫn thành công). + `RECRUITMENT_PLAN_FINISHED` cho từng kế hoạch bị đóng | Email |
+| Đóng (tay) | Theo `RecruitmentRequestCloseService` (chưa xem file, xem _Điểm chưa chắc_). Trước 3ebed5507: mail `RECRUITMENT_REQUEST_CLOSED` cho `requestedBy` + `RECRUITMENT_PLAN_FINISHED` cho từng kế hoạch bị đóng | Email |
+| Tự đóng khi đủ SL (`AUTO_CLOSE_ON_QUOTA`, job-scheduler) | Cùng luồng đóng chung; comment trong service ghi "closes the open plans and sends the mails" | Email (người nhận chưa xác nhận) |
 | Tạo/sửa có `body.approvedType = 'online'` + có integration template `recruitment-request` | Chạy integration (hệ thống ngoài) | Integration — seed shinhanbank **không có** template này |
 | Bước 2, chọn `boundary_date` | Gọi integration lấy định biên (đọc) | Integration |
 
-→ Để không làm phiền người thật: Approver, Line Manager, TA Admin đều chọn tài khoản QA (requestedBy tự là QA); không dùng YCTD mẫu (`sample`) vì copy approverTree của mẫu; YCTD test không gắn kế hoạch thật.
+→ Để không làm phiền người thật: Approver, Line Manager, TA Admin đều chọn tài khoản QA (requestedBy tự là QA); không dùng YCTD mẫu (`sample`) vì copy approverTree của mẫu; YCTD test không gắn kế hoạch thật. Với YCTD test, cần lưu ý `AUTO_CLOSE_ON_QUOTA` đang bật trên staging.
 
 ## Điểm chưa chắc
 
+- [ ] Đóng YCTD sau 3ebed5507: mail đóng và việc gỡ tin đăng ngoài nằm trong `RecruitmentRequestCloseService` (chưa xem). Người nhận mail là ai? Còn nuốt lỗi khi thiếu template `RecruitmentRequestClosed` của tenant không? — nguồn đã xem: recruitment-requests.service.ts
+- [ ] Tự đóng khi đủ SL: `EmploymentQuotaService` (job-scheduler, chưa xem) đếm `isEmployee` theo `quantity` / `content.quantity` ra sao, và có chạy thật trên staging không? — nguồn đã xem: configurations.yaml, recruitment-requests.service.ts
+- [ ] Transform có `meta.level1..level6` kèm `code`, `jobTitleCode`, `lineManager` (configurations.yaml, quanh dòng 634): thuộc luồng nào, có liên quan YCTD không? — nguồn đã xem: configurations.yaml
+- [ ] Dashboard (`DASHBOARD_DATASETS`, bucket `requisition-overview`) đếm YCTD theo `level1`, `employeeType`, `jobGroup`. Chưa đưa vào tài liệu này vì ngoài phạm vi flow — nguồn đã xem: configurations.yaml
 - [x] `NI26072` Approved + Cancelled → user chốt: **đã huỷ thì không được duyệt** → chuyển sang _Nghi bug_.
 - [x] Người duyệt → **chọn tay ở bước 3** (user chốt); chọn được tài khoản QA (options = mọi user active).
 - [x] TA Admin → bắt buộc, không để trống; xoá hết mặc định rồi chọn riêng QA (đọc form config).
 - [x] Mã → `area` (bước 1), `reason` (bước 2), năm của `requestedDate` (đọc form config + JSONata).
-- [x] Email đóng → chỉ `requestedBy`; có thể không gửi vì thiếu template (đọc `email-recruitment-request.ts`).
 - [x] Từ chối → UI **bắt buộc lý do** (cả 5 màn: list-approval, application-entry, edit-entry, plan-entry, process-approval chặn chuỗi rỗng); backend nhận `note` rỗng.
 - [x] Định biên → có dữ liệu; không có định biên thì **chặn** `Continue` (xem _Màn hình & thao tác_).
 - [x] Nhiều cấp duyệt → có (nút Add approval level). Flow M1 dùng 1 cấp; luồng duyệt nhiều cấp chưa kiểm thử.
 
 ## Nghi bug
 
-- 2026-10-10 · (chưa có spec) · Backend `PATCH /recruitment-requests/:id/approve|reject` không kiểm tra `statusCO`; YCTD đã huỷ (`'4'`) mà còn node `pending` vẫn duyệt/từ chối được. Bằng chứng: `NI26072` trên staging hiện Approved + Cancelled (đã xoá mềm khi dọn dữ liệu 2026-10-10 theo yêu cầu user — vẫn còn trong DB với cờ xoá). Quy tắc user chốt: đã huỷ thì không được duyệt. · UI đã chặn (màn duyệt ẩn nút Approve — spec `đã huỷ thì không được duyệt` xanh), nên lỗ hổng chỉ còn ở **API**: gọi thẳng `PATCH /approve` vẫn qua. Chưa tái hiện bằng API vì không ghi tắt qua API (CLAUDE.md); cần user quyết có muốn thêm kiểm thử API này không.
+- 2026-10-10 · (chưa có spec) · Backend `PATCH /recruitment-requests/:id/approve|reject` không kiểm tra `statusCO`; YCTD đã huỷ (`'4'`) mà còn node `pending` vẫn duyệt/từ chối được. Bằng chứng: `NI26072` trên staging hiện Approved + Cancelled (đã xoá mềm khi dọn dữ liệu 2026-10-10 theo yêu cầu user — vẫn còn trong DB với cờ xoá). Quy tắc user chốt: đã huỷ thì không được duyệt. Commit 3ebed5507 chỉ thêm lọc `statusCO != '4'` vào pipeline danh sách (dòng ~801), **không sửa handler approve/reject** → lỗi vẫn còn theo diff này. · UI đã chặn (màn duyệt ẩn nút Approve — spec `đã huỷ thì không được duyệt` xanh), nên lỗ hổng chỉ còn ở **API**: gọi thẳng `PATCH /approve` vẫn qua. Chưa tái hiện bằng API vì không ghi tắt qua API (CLAUDE.md); cần user quyết có muốn thêm kiểm thử API này không.
+
+## Đã đổi theo commit mới
+
+- 3ebed5507 (2026-10-22) · Đóng YCTD: service không còn tự gửi mail và đóng kế hoạch; gọi `RecruitmentRequestCloseService.closeRecruitmentRequest(...)`; nếu không đóng được → `400 Invalid status transition`. Đã cập nhật Trạng thái, Tác dụng phụ, Điểm chưa chắc.
+- 3ebed5507 (2026-10-22) · Bỏ `SmcEmailTemplateService` khỏi constructor của `RecruitmentRequestsService`; logic mail đóng chuyển sang service đóng chung.
+- 3ebed5507 (2026-10-22) · Pipeline danh sách có `approverTree` nay loại `statusCO = '4'` (YCTD đã huỷ); handler approve/reject chưa đổi.
+- 3ebed5507 (2026-10-22) · Thêm tự đóng khi đủ số lượng (`AUTO_CLOSE_ON_QUOTA`, enabled=true trên shinhanbank); thêm vào Trạng thái, Tác dụng phụ, Mermaid.

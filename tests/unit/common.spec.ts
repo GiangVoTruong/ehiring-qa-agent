@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { QA_PREFIX, addToRegistry, cleanupCandidates, qaTitle, readRegistry } from '../../flows/common';
+import { QA_PREFIX, loadCredentials, addToRegistry, cleanupCandidates, qaTitle, readRegistry } from '../../flows/common';
 
 test('qaTitle gắn tiền tố [AUTOTEST] (không còn [QA-AUTO]) và hậu tố thời gian duy nhất', () => {
   const a = qaTitle('YCTD', new Date('2026-10-10T08:30:45.123Z'));
@@ -37,4 +37,25 @@ test('cleanupCandidates chỉ chọn bản ghi vừa có trong registry vừa c�
 test('cleanupCandidates vẫn nhận dữ liệu cũ đặt tên [QA-AUTO] để dọn', () => {
   const registry = [{ flow: 'recruitment-requests', id: '9', title: '[QA-AUTO] YCTD cũ', createdAt: '' }];
   expect(cleanupCandidates([{ id: '9', title: '[QA-AUTO] YCTD cũ' }, { id: '9x', title: '[QA-AUTO] khác' }], registry).map((r) => r.id)).toEqual(['9']);
+});
+
+test('totp: đúng vector kiểm thử RFC 6238 (SHA-1) và cùng mã trong một bước 30 giây', async () => {
+  const { totp } = await import('../../flows/totp');
+  const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'; // "12345678901234567890" dạng base32
+  expect(totp(secret, 59_000, 8)).toBe('94287082');
+  expect(totp(secret, 1111111109_000, 8)).toBe('07081804');
+  expect(totp(secret, 31_000)).toBe(totp(secret, 59_999)); // cùng bước 30 giây
+  expect(totp(secret, 59_000)).not.toBe(totp(secret, 60_000));
+});
+
+test('loadCredentials: tài khoản local được nhận từ file đã lưu', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'cred-'));
+  const f = join(dir, 'c.json');
+  writeFileSync(f, JSON.stringify({ username: 'u', password: 'p', local: true }));
+  expect(loadCredentials(f).local).toBe(true);
+  writeFileSync(f, JSON.stringify({ username: 'u', password: 'p' }));
+  expect(loadCredentials(f).local).toBe(false);
 });

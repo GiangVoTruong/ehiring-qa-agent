@@ -2,11 +2,13 @@ import { expect, test } from '@playwright/test';
 // @ts-ignore — module .mjs dùng chung với web
 import { buildSteps, isLoginStep, loginFlags } from '../../web/recorder.mjs';
 // @ts-ignore
-import { cleanExpected, buildExpected, deriveTestCases, findSimilar, flowSignature, isWriteApi, observeFacts, redact, validateAnalysis } from '../../web/analysis.mjs';
+import { groupSteps, cleanExpected, buildExpected, deriveTestCases, findSimilar, flowSignature, isWriteApi, observeFacts, redact } from '../../web/analysis.mjs';
 // @ts-ignore
 import { applyVerification, overallStatus, verifyExpected } from '../../web/runlib.mjs';
 // @ts-ignore
 import { openStore } from '../../web/store.mjs';
+// @ts-ignore
+import { runPortalFill } from '../../web/jobs.mjs';
 
 const snap = (fields: any[], buttons: any[] = [], errors: string[] = []) => ({ url: '/x', fields, buttons, errors });
 const f = (label: string, extra: any = {}) => ({ label, kind: 'text', required: false, disabled: false, filled: false, ...extra });
@@ -78,31 +80,8 @@ test('isWriteApi: truy vấn dashboard/search không tính là ghi dữ liệu',
   expect(isWriteApi('PATCH', '/recruitment-plans/:id')).toBe(true);
 });
 
-// ---------- Kiểm tra output của AI ----------
-test('validateAnalysis: AI không được tự nhận Observed/Confirmed, quy tắc không bằng chứng bị hạ, bằng chứng ma bị loại', () => {
-  const raw = {
-    summary: 'Tạo phiếu',
-    business_steps: [{ title: 'Chọn đơn vị', step_indices: [0, 1] }, { title: 'bước ma', step_indices: [99] }],
-    rules: [
-      { statement: 'Vị trí phụ thuộc phòng ban', status: 'Confirmed', evidence: [1] },
-      { statement: 'Trường X bắt buộc', status: 'Inferred', evidence: [] },
-      { statement: 'Đã thấy', status: 'Observed', evidence: [0] },
-    ],
-    questions: [{ text: 'Trạng thái sau khi lưu có phải Chờ duyệt?' }],
-    test_cases: [{ kind: 'negative', title: 'Dữ liệu sai', what_to_explore: 'chưa biết giới hạn' }, { kind: 'bậy', title: 'x' }],
-  };
-  const { ok, value, problems } = validateAnalysis(raw, 3);
-  expect(ok).toBe(true);
-  expect(value.businessSteps).toHaveLength(1);
-  expect(value.rules.map((r: any) => r.status)).toEqual(['Inferred', 'Needs verification', 'Inferred']);
-  expect(value.rules.every((r: any) => !['Observed', 'Confirmed'].includes(r.status))).toBe(true);
-  expect(value.testCases).toHaveLength(1);
-  expect(value.testCases[0].executable).toBe(false); // negative do AI đề xuất chưa có cách chạy → không tự chạy
-  expect(problems.length).toBeGreaterThanOrEqual(3);
-  expect(validateAnalysis(null, 3).ok).toBe(false);
-});
-
-test('redact: che email, số dài, token, id trước khi gửi AI', () => {
+// ---------- Che dữ liệu nhạy cảm ----------
+test('redact: che email, số dài, token, id khỏi nội dung dữ kiện', () => {
   const out = redact('mail a.b@x.com sdt 0912345678 id 6acdca98c2bf768b7c09c87d tok eyJhbGciOi.abc.def');
   expect(out).not.toMatch(/a\.b@/);
   expect(out).not.toMatch(/0912345678/);
@@ -256,7 +235,7 @@ test('loadCredentials: ưu tiên tài khoản đã nhớ lúc quay, không có t
     process.env.QA_USERNAME = 'env-user'; process.env.QA_PASSWORD = 'env-pw';
     expect(loadCredentials(file)).toMatchObject({ username: 'env-user', source: 'env' });
     wf(file, JSON.stringify({ username: 'tester01', password: 'pw1' }));
-    expect(loadCredentials(file)).toEqual({ username: 'tester01', password: 'pw1', source: 'saved' });
+    expect(loadCredentials(file)).toMatchObject({ username: 'tester01', password: 'pw1', source: 'saved' });
     delete process.env.QA_USERNAME; delete process.env.QA_PASSWORD;
     wf(file, '{}');
     expect(() => loadCredentials(file)).toThrow(/Chưa có tài khoản/);
@@ -304,7 +283,7 @@ test('API đăng nhập/SSO/MFA không bao giờ là kết quả mong đợi (c�
 });
 
 // ---------- Hồ sơ giả lập giống thật để điền form bổ sung thông tin ----------
-import { fmtDate, makeProfile, portalValue, preferOption } from '../../flows/fake-person';
+import { autoValue, fmtDate, makeProfile, portalValue, preferOption, shiftDate } from '../../flows/fake-person';
 
 test('makeProfile: dữ liệu giống thật và nhất quán (CCCD ↔ ngày sinh/giới tính, ngày học/làm hợp lý), email luôn là hộp thư QA', () => {
   const now = new Date('2026-10-19T00:00:00Z');
@@ -356,4 +335,62 @@ test('portalValue: ô nào điền loại giá trị đó; không còn chuỗi g
   expect(preferOption(p, 'Giới tính')?.test(p.gender)).toBe(true);
   expect(preferOption(p, 'Ô lạ')).toBeUndefined();
   expect(fmtDate(new Date(2020, 0, 5))).toBe('05/01/2020');
+});
+
+// ---------- Tự điền khi chạy lại ----------
+test('autoValue: giá trị mới giống thật theo hình dạng/nhãn; ngày dời đều nên thứ tự bản quay vẫn đúng; văn bản tự do thêm mã duy nhất', () => {
+  const now = new Date('2026-10-19T00:00:00Z');
+  const p = makeProfile(21, 'qa@shinhanbank.com', now);
+  expect(autoValue(p, 'Email', 'someone@real.com')).toBe('qa@shinhanbank.com');       // không bao giờ dùng email thật
+  expect(autoValue(p, 'Phone', '0987654321')).toBe(p.phone);
+  expect(autoValue(p, 'Citizen ID', '012345678901')).toBe(p.cccd);
+  expect(autoValue(p, 'Number of recruitment', '2')).toBe(String(p.headcount));
+  expect(autoValue(p, 'Page size', '10')).toBe('10');                                  // số ngắn không rõ nhãn: giữ nguyên
+  const start = autoValue(p, 'Start date', '10/10/2026', { shiftDays: 9 });
+  const end = autoValue(p, 'End date', '20/10/2026', { shiftDays: 9 });
+  expect([start, end]).toEqual(['19/10/2026', '29/10/2026']);                          // cùng dời 9 ngày → cách nhau vẫn 10 ngày
+  expect(shiftDate('2026-12-30', 3)).toBe('2027-01-02');
+  expect(shiftDate('abc', 3)).toBeNull();
+  const t1 = autoValue(p, 'Plan title', 'Tạo kế hoạch Q4'); const t2 = autoValue(makeProfile(22, 'x@y.z', now), 'Plan title', 'Tạo kế hoạch Q4');
+  expect(t1).toMatch(/^Tạo kế hoạch Q4 [0-9A-Z]{4}$/);
+  expect(t1).not.toBe(t2);                                                            // mỗi lần chạy một mã khác → không trùng bản ghi
+  expect(autoValue(p, 'Plan title', 'Mã 20261011041918399')).toMatch(/^Mã [0-9A-Z]{4}$/);
+});
+
+test('portalValue/autoValue nhận nhãn tiếng Anh của giao diện (Full name, Address, Salary, Company…)', () => {
+  const p = makeProfile(5, 'qa@shinhanbank.com', new Date('2026-10-19T00:00:00Z'));
+  expect(portalValue(p, 'Full name', '', 'INPUT', 1)).toBeTruthy();
+  expect(portalValue(p, 'Address', '', 'INPUT', 1)).toBe(p.address);
+  expect(portalValue(p, 'Expected salary', '', 'INPUT', 1)).toBe(String(p.salary));
+  expect(portalValue(p, 'Company', '', 'INPUT', 1)).toBe(p.company);
+});
+
+// ---------- Gom bước nghiệp vụ bằng quy tắc ----------
+test('groupSteps: mỗi trang một bước, thao tác ghi dữ liệu kết thúc bước, tên nói đúng điều đã quan sát', () => {
+  const steps = [
+    { text: 'a', url: '/plans', act: { type: 'nav' }, effects: [] },
+    { text: 'b', url: '/plans', act: { type: 'click', text: 'Create' }, effects: [] },
+    { text: 'c', url: '/plans/create', act: { type: 'nav' }, effects: [] },
+    { text: 'd', url: '/plans/create', act: { type: 'click', dataChoice: true, dataField: 'Mẫu', text: 'X' }, effects: [] },
+    { text: 'e', url: '/plans/create', act: { type: 'input', field: 'Số lượng' }, effects: [] },
+    { text: 'f', url: '/plans/create', act: { type: 'click', text: 'Save' }, effects: ['POST /plans → 201'] },
+    { text: 'g', url: '/plans/1', act: { type: 'nav' }, effects: [] },
+  ];
+  const g = groupSteps(steps);
+  expect(g.map((x: any) => x.stepIndices)).toEqual([[0, 1], [2, 3, 4, 5], [6]]);
+  expect(g[1].title).toBe('Lưu dữ liệu (POST /plans)');
+  expect(g[2].title).toBe('Vào trang /plans/1');
+  expect(g.every((x: any) => x.source === 'machine')).toBe(true);
+});
+
+// ---------- Điền form BSTT từ link ----------
+test('runPortalFill: chỉ nhận link https của staging có /extra-info/<mã>', () => {
+  for (const bad of ['', 'không phải link', 'http://tuyendung-shb.stg.ehiring.com.vn/extra-info/abc', 'https://example.com/extra-info/abc', 'https://tuyendung-shb.stg.ehiring.com.vn/login'])
+    expect(() => runPortalFill({ url: bad, submit: false }), bad).toThrow();
+});
+
+test('makeProfile: email mặc định là địa chỉ giả @example.com, không phải email công ty', () => {
+  const p = makeProfile(5, undefined, new Date('2026-10-19T00:00:00Z'));
+  expect(p.email).toMatch(/^[a-z]+\d{1,3}@example\.com$/);
+  expect(p.email).not.toMatch(/shinhan/i);
 });

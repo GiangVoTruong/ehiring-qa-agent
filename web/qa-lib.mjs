@@ -34,6 +34,15 @@ export function makeLib() {
     return boxes.reverse().find((b) => short(b.textContent).includes(ctx)) || document;
   };
   const sameText = (list, text) => list.filter((e) => clickText(e) === text);
+  // Chữ trên giao diện hay chứa mã/số đổi theo dữ liệu ("[4TA6C-926WE] Phỏng vấn…", "Lần 12") → so khớp mềm: bỏ [mã], số dài, khoảng trắng.
+  const soft = (t) => clean(t).toLowerCase().replace(/\[[^\]]*\]/g, '').replace(/\d{3,}/g, '#').replace(/\s+/g, ' ').trim();
+  const softSame = (list, text) => { const k = soft(text); return k ? list.filter((e) => soft(clickText(e)) === k) : []; };
+  /** Các phần tử bấm được đang hiện, sắp theo độ giống chữ cần tìm (để báo cáo "trên trang đang có gì gần giống"). */
+  const similar = (text) => {
+    const want = new Set(soft(text).split(' ').filter((w) => w.length > 1));
+    return [...document.querySelectorAll(CLICKABLE)].filter(visible).map((e) => ({ t: short(clickText(e), 60), score: soft(clickText(e)).split(' ').filter((w) => want.has(w)).length })).filter((x) => x.t && x.score > 0)
+      .sort((a, b) => b.score - a.score).filter((x, i, arr) => arr.findIndex((y) => y.t === x.t) === i).slice(0, 5).map((x) => x.t);
+  };
 
   // Menu trái thu gọn: mục con chỉ hiện (ở lớp phủ) khi di chuột vào biểu tượng nhóm → nhớ nhóm vừa hover để biết mục con thuộc nhóm nào.
   let grp = { name: '', t: 0 };
@@ -52,18 +61,60 @@ export function makeLib() {
   let lastSel = '';
   const isDataChoice = (el) => !!el.closest(LIST_BOX) || el.matches('nz-option-item, .ant-select-item, .ant-select-item-option, [role=option]');
 
+  // ---- Lịch chọn ngày ----
+  let lastInp = null;
+  if (typeof document !== 'undefined') document.addEventListener('focusin', (e) => { const t = e.target; if (t instanceof HTMLInputElement && !t.closest('[class*=picker],[class*=calendar]')) lastInp = t; }, true);
+  const WEEK = /(Sun|Mon)\w*\W+(Mon|Tue)\w*\W+(Tue|Wed)|Thứ\s*hai.*Thứ\s*ba|\bT2\b.*\bT3\b.*\bT4\b|\bCN\b.*\bT2\b/;
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const calendarOf = (el) => {
+    const ant = el.closest('.ant-picker-dropdown, .ant-picker-panel-container'); if (ant) return ant;
+    let p = el;
+    for (let i = 0; p && i < 8; i++, p = p.parentElement) { const t = clean(p.innerText); if (t.length < 1200 && WEEK.test(t)) return p; }
+    return null;
+  };
+  // Ô nhập mà lịch đang gắn vào: ô hiển thị gần mép lịch nhất (lịch mở ngay dưới hoặc trên ô). Dùng khi người dùng mở lịch bằng biểu tượng nên ô chưa hề được focus.
+  const anchorInput = (cal) => {
+    const c = cal.getBoundingClientRect(); let best = null, bd = 160;
+    for (const e of document.querySelectorAll(INPUTS)) {
+      if (cal.contains(e) || !visible(e)) continue;
+      const r = e.getBoundingClientRect();
+      if (r.right < c.left - 40 || r.left > c.right + 40) continue; // lệch ngang
+      const d = Math.min(Math.abs(c.top - r.bottom), Math.abs(r.top - c.bottom));
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best;
+  };
+  const pickedDate = (cal, raw) => {
+    const cell = raw.closest('td.ant-picker-cell'); if (/^\d{4}-\d{2}-\d{2}$/.test(cell?.title || '')) return cell.title;
+    const day = Number(clean(raw.textContent)); if (!(day >= 1 && day <= 31) || !/^\d{1,2}$/.test(clean(raw.textContent))) return '';
+    const head = clean(cal.innerText); let mo = -1, y = 0, m;
+    if ((m = head.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\W+(\d{4})/i))) { mo = MONTHS.indexOf(m[1].toLowerCase()); y = Number(m[2]); }
+    else if ((m = head.match(/tháng\s*(\d{1,2})\W+(\d{4})/i))) { mo = Number(m[1]) - 1; y = Number(m[2]); }
+    if (mo < 0) return '';
+    let cls = ''; for (let e = raw, i = 0; e && i < 3; i++, e = e.parentElement) cls += ' ' + (e.className || '');
+    if (/outside|other|old|prev|next|adjacent|muted/i.test(cls)) mo += day > 15 ? -1 : 1; // ngày thừa của tháng trước/sau
+    const d = new Date(y, mo, day);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
   /** Mô tả phần tử vừa bấm (lúc quay). */
   const describeClick = (raw) => {
     const el = raw.closest(CLICKABLE) || raw;
     const inp = checkable(el);
-    const text = clickText(el);
+    // Bấm trong lịch chọn ngày (mọi thư viện): chữ của cả bảng lịch đổi theo tháng nên không dùng làm tên; ghi ngày đã chọn + ô nhập đang mở lịch để chạy lại bằng cách nhập thẳng ngày.
+    let picker = null; let pickerInput = null;
+    const cal = calendarOf(el);
+    if (cal) {
+      const pin = document.querySelector('.ant-picker-focused input') || anchorInput(cal) || lastInp;
+      picker = { date: pickedDate(cal, raw), field: pin ? fieldLabel(pin) : '', ph: pin?.placeholder || '' }; pickerInput = pin;
+    }
+    const text = picker ? (picker.date ? `Chọn ngày ${picker.date}` : 'Điều hướng lịch') : clickText(el);
     if (el.closest('.ant-select') && !isDataChoice(el)) lastSel = blockLabel(el) || text;
     const peers = sameText([...(scopeOf(ctxOf(el))).querySelectorAll(CLICKABLE)].filter(visible), text);
     return {
       menu: !!el.closest('nz-sider, .ant-menu, .ant-menu-submenu-popup'), menuGroup: groupOf(el), menuToggle: !!el.closest('.trigger-button'), siderCollapsed: !!document.querySelector('nz-sider.ant-layout-sider-collapsed'),
       dataChoice: isDataChoice(el), dataField: isDataChoice(el) ? lastSel : '',
       testid: el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy') || '', aria: short(el.getAttribute('aria-label') || el.title || ''),
-      tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', text, input: inp ? (inp.type || '') : '',
+      _pin: pickerInput, vw: window.innerWidth, vh: window.innerHeight, picker, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || '', text, input: inp ? (inp.type || '') : '',
       isTextInput: raw.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea') && !raw.closest('.ant-select, .ant-picker'),
       field: raw.matches('input,textarea') && !raw.closest('.ant-select, .ant-picker') ? fieldLabel(raw) : blockLabel(el), sel: cssPath(el), nth: Math.max(0, peers.indexOf(el)), _el: el,
     };
@@ -75,20 +126,34 @@ export function makeLib() {
   };
 
   /** Tìm lại phần tử khi chạy lại: data-testid → chữ (trong hộp thoại rồi cả trang) → aria-label → nhãn trường → đường dẫn CSS (cuối cùng). */
-  let lastHow = '';
+  let lastHow = ''; let lastN = 0; let exactHit = false;
   const found = (el, how) => { lastHow = how; return el; };
+  // Nhiều phần tử trùng chữ: chọn theo đường dẫn DOM giống lúc quay nhất (ổn định khi đổi kích thước cửa sổ làm số phần tử đang hiện thay đổi), chỉ khi không có mới dùng số thứ tự.
+  const pick = (m, s) => {
+    if (m.length > 1 && s.sel) {
+      const exact = m.find((e) => cssPath(e) === s.sel); if (exact) { exactHit = true; return exact; }
+      let best = null, bl = -1;
+      for (const e of m) { const p = cssPath(e); let k = 0; while (k < p.length && k < s.sel.length && p[k] === s.sel[k]) k++; if (k > bl) { bl = k; best = e; } }
+      if (bl > s.sel.length / 2) return best;
+    }
+    return m[s.nth || 0] || m[0];
+  };
   const resolve = (s) => {
-    lastHow = '';
+    lastHow = ''; lastN = 0; exactHit = false;
     if (s.type === 'click') {
       try { if (s.testid) { const e = [...document.querySelectorAll(`[data-testid="${CSS.escape(s.testid)}"],[data-test="${CSS.escape(s.testid)}"],[data-cy="${CSS.escape(s.testid)}"]`)].filter(visible)[0]; if (e) return found(e, 'testid'); } } catch { /* testid lạ */ }
       if (s.text) {
         const all = (root) => sameText([...root.querySelectorAll(CLICKABLE)].filter(visible), s.text);
         const m = all(scopeOf(s.ctx));
-        const hit = m[s.nth || 0] || m[0] || all(document)[s.nth || 0] || all(document)[0];
-        if (hit) return found(hit, 'text');
+        const hit = pick(m, s) || pick(all(document), s);
+        if (hit) { lastN = exactHit ? 0 : (m.length ? m : all(document)).length; return found(hit, 'text'); }
+        const softAll = (root) => softSame([...root.querySelectorAll(CLICKABLE)].filter(visible), s.text);
+        const fz = softAll(scopeOf(s.ctx)); const soft0 = pick(fz, s) || softAll(document)[0];
+        if (soft0) return found(soft0, 'text~');
       }
       if (s.aria) { const e = [...document.querySelectorAll('[aria-label],[title]')].filter((x) => visible(x) && short(x.getAttribute('aria-label') || x.title) === s.aria)[s.nth || 0]; if (e) return found(e, 'aria'); }
-      if (s.field) {
+      // Không dùng nhãn trường cho dòng/ô trong bảng hay bộ chọn số dòng mỗi trang («15 / page»): nhãn đó là của ô chọn khác, dùng sẽ bấm nhầm.
+      if (s.field && !/\d+\s*\/\s*page/i.test(s.field) && !/(^|\s)(table|tbody|thead|tr|td|th)(:|\s|$)/.test(s.sel || '')) {
         // Ô chọn không còn chữ cũ (đã có giá trị khác): tìm theo nhãn trường trong form động.
         const blocks = [...document.querySelectorAll('div[ehiringnoderefvar]')].filter((b) => visible(b) && short(b.querySelector('ehiring-section span span')?.textContent) === s.field);
         const t = (blocks[s.nth || 0] || blocks[0])?.querySelector('.ant-select, [role=combobox], .ant-picker, input, textarea');
@@ -117,6 +182,28 @@ export function makeLib() {
       const ctl = blk.querySelector('input,textarea,select,.ant-select,.ant-picker');
       const filled = !!(blk.querySelector('.ant-select-selection-item, .ant-picker-input input[value]:not([value=""])') || (ctl && ctl.value));
       fields.push({ label, kind: blk.querySelector('nz-select,.ant-select') ? 'select' : blk.querySelector('.ant-picker') ? 'date' : blk.querySelector('textarea') ? 'textarea' : 'text', required: REQ.test(label) || !!blk.querySelector('[class*=required]') || /bắt buộc|required/i.test(blk.textContent || ''), disabled: !!(ctl && (ctl.disabled || ctl.classList.contains('ant-select-disabled'))), filled });
+    }
+    // Form không dùng khung ehiringnoderefvar (vd. form Add talent, form cổng ứng viên): lấy theo từng ô nhập + nhãn đứng ngay trước nó.
+    if (!fields.length) {
+      const labelOf = (el) => {
+        const lab = el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+        if (lab) return short(lab.textContent);
+        if (el.getAttribute('aria-label')) return short(el.getAttribute('aria-label'));
+        for (let n = el, d = 0; n && n !== root && d < 4; n = n.parentElement, d++) {
+          for (let p = n.previousElementSibling; p; p = p.previousElementSibling) {
+            const t = short(p.textContent);
+            if (t && t.length < 60 && !p.querySelector('input,textarea,select,.ant-select,button[role=combobox]')) return t;
+          }
+        }
+        return '';
+      };
+      for (const el of [...root.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]),textarea,select,button[role=combobox],.ant-select')].filter(visible).slice(0, 120)) {
+        const label = labelOf(el);
+        if (!label || seen.has(label)) continue; seen.add(label);
+        const isSel = el.matches('select,button[role=combobox],.ant-select');
+        const isDate = !!el.closest('.ant-picker') || /date|ngày/i.test((el.placeholder || '') + label);
+        fields.push({ label, kind: isSel ? 'select' : isDate ? 'date' : el.matches('textarea') ? 'textarea' : 'text', required: REQ.test(label), disabled: !!el.disabled, filled: !!(el.value || (isSel && el.textContent && !/chọn|select/i.test(el.textContent))) });
+      }
     }
     const buttons = [...root.querySelectorAll('button')].filter(visible).slice(0, 25).map((b) => ({ text: short(b.innerText || b.getAttribute('aria-label') || '', 40), disabled: b.disabled || b.classList.contains('ant-btn-disabled') })).filter((b) => b.text);
     return { url: location.pathname, fields, buttons, errors: [...root.querySelectorAll('.ant-form-item-explain-error, [class*=error-msg], .text-danger')].filter(visible).map((e) => short(e.textContent, 80)).slice(0, 10) };
@@ -151,10 +238,12 @@ export function makeLib() {
     const hits = [...box.querySelectorAll('*')].filter((e) => visible(e) && clean(e.innerText) === text);
     return hits[hits.length - 1] || null; // phần tử trong cùng khớp đúng chữ; bấm vào nó cũng là bấm cả dòng
   };
-  const firstOption = () => {
+  // Mục đầu tiên chưa chọn và không nằm trong skip (chữ các mục đã chọn trước đó trong cùng danh sách chọn nhiều).
+  const firstOption = (skip = []) => {
     const box = openList(); if (!box) return null;
-    const opts = [...box.querySelectorAll('nz-option-item, .ant-select-item-option, [role=option]')].filter(visible);
-    return opts[0] || [...(box.querySelector('.cdk-virtual-scroll-content-wrapper')?.children || [])].filter(visible)[0] || null;
+    const ok = (e) => !skip.includes(clean(e.innerText)) && e.getAttribute('aria-selected') !== 'true' && !/option-selected/.test(e.className || '');
+    const opts = [...box.querySelectorAll('nz-option-item, .ant-select-item-option, [role=option]')].filter(visible).filter(ok);
+    return opts[0] || [...(box.querySelector('.cdk-virtual-scroll-content-wrapper')?.children || [])].filter(visible).filter(ok)[0] || null;
   };
   /** Cuộn danh sách chọn xuống một đoạn; trả false nếu đã hết. */
   const scrollListDown = () => {
@@ -163,5 +252,5 @@ export function makeLib() {
     const before = sc.scrollTop; sc.scrollBy({ top: Math.max(120, sc.clientHeight * 0.8), behavior: 'instant' });
     return sc.scrollTop !== before;
   };
-  return { snapshot, observeToasts, pathOf: cssPath, how: () => lastHow, describeScroll, scrollTo, rowByText, firstOption, scrollListDown, short, fieldLabel, ctxOf, describeClick, describeInput, resolve };
+  return { similar, snapshot, observeToasts, pathOf: cssPath, how: () => lastHow, matches: () => lastN, describeScroll, scrollTo, rowByText, firstOption, scrollListDown, short, fieldLabel, ctxOf, describeClick, describeInput, resolve };
 }

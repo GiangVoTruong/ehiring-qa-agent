@@ -26,25 +26,22 @@ export const meta = (...parts) => `<div class="meta">${parts.filter((x) => x != 
 export const badge = (status, text) => CERT[status] ? cert(status, text) : `<span class="badge ${BADGE[status] ?? ''}">${BADGE_ICON[status] ? icon(BADGE_ICON[status], 12) : ''}${esc(text ?? BADGE_TEXT[status] ?? status)}</span>`;
 
 // ---------- Khung: sidebar + topbar ----------
-const NAV = [['overview', 'Overview', 'overview'], ['record', 'Record & Learn', 'record'], ['flows', 'Test Flows', 'flows'], ['runs', 'Test Runs', 'runs'], ['knowledge', 'AI Knowledge', 'knowledge'], ['settings', 'Settings', 'settings']];
+const NAV = [['overview', 'Overview', 'overview'], ['record', 'Record & Learn', 'record'], ['flows', 'Test Flows', 'flows']];
 export function AppSidebar({ active, env, rec, badges = {} }) {
   const st = rec?.recording ? (rec.paused ? ['pause', 'Đang tạm dừng quay'] : ['rec', 'Đang quay']) : ['on', 'Browser sẵn sàng'];
-  return `<aside class="sidebar"><div class="brand"><div class="logo">${icon('sparkles', 14)}</div><span>AI Testing</span></div>
+  return `<aside class="sidebar"><div class="brand"><div class="logo"></div><span>AI Testing Agent</span></div>
     <nav class="nav">${NAV.map(([id, label, ic]) => `<a href="#/${id === 'overview' ? '' : id}" class="${active === id ? 'active' : ''}">${icon(ic, 17)}<span>${label}</span>${badges[id] ? `<em class="count">${badges[id]}</em>` : ''}</a>`).join('')}
-      <div class="sep"></div><a href="/classic" title="Chạy luồng có sẵn, quy trình tự soạn, dọn dữ liệu test">${icon('external', 17)}<span>Classic runner</span></a></nav>
-    <div class="side-foot"><div class="row"><span class="dot ${st[0]}"></span><span class="lbl">${st[1]}</span></div>
-      <div class="row" title="${esc(env?.baseUrl ?? '')}">${icon('globe', 14)}<span class="lbl mono" style="font-size:11.5px;overflow:hidden;text-overflow:ellipsis">${esc(env?.host ?? '…')}</span></div></div></aside>`;
+      </nav>
+    <div class="side-foot"><div class="env" title="${esc(env?.baseUrl ?? '')}"><b>Staging</b><span class="mono">${esc(env?.host ?? '…')}</span></div>
+      <div class="row"><span class="dot ${st[0]}"></span><span class="lbl">${st[1]}</span></div></div></aside>`;
 }
 export function AppTopbar({ crumbs, env, rec, mock }) {
   const last = crumbs.length - 1;
   return `${mock ? '<div class="banner">Đang xem DỮ LIỆU MẪU (?mock=1) — không phải kết quả thật.</div>' : ''}
     <header class="topbar"><div class="crumbs">${crumbs.map((c, i) => (i === last ? `<b>${esc(c.label)}</b>` : `<a href="${c.href}">${esc(c.label)}</a>${icon('chevronRight', 12)}`)).join('')}</div>
       <label class="search">${icon('search', 15)}<input id="gsearch" placeholder="Tìm test flow…" autocomplete="off"/></label>
-      <span class="pill" title="Môi trường test cấu hình trong .env (chỉ staging được phép)">${icon('flask', 13)}<b style="font-weight:600">Staging</b><span class="mute sp-hide">${esc(env?.host ?? '')}</span></span>
-      <span class="pill" title="Trạng thái trình duyệt ghi hình">${rec?.recording ? `<span class="dot ${rec.paused ? 'pause' : 'rec'}"></span>${rec.paused ? 'Paused' : 'Recording'}` : `${icon('wifi', 13)}Browser ready`}</span>
       <span class="seg" role="group" aria-label="Ngôn ngữ"><button data-lang="vi" class="${getLang() === 'vi' ? 'active' : ''}" title="Tiếng Việt">VI</button><button data-lang="en" class="${getLang() === 'en' ? 'active' : ''}" title="English">EN</button></span>
-      <button class="btn icon theme-btn" data-theme-toggle title="Đổi giao diện sáng / tối" aria-label="Đổi giao diện sáng hoặc tối">${icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 16)}</button>
-      <span class="avatar" title="${esc(env?.user ?? '')}">${esc((env?.user || 'QA').slice(0, 2).toUpperCase())}</span></header>`;
+      <button class="btn icon theme-btn" data-theme-toggle title="Đổi giao diện sáng / tối" aria-label="Đổi giao diện sáng hoặc tối">${icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 16)}</button></header>`;
 }
 
 // ---------- Recording ----------
@@ -80,9 +77,9 @@ export function RecordingTimeline(steps, { startedAt, open = new Set(), empty = 
 export function AILiveInsights(ins, { live = true } = {}) {
   const grp = (status, title, sub, items) => `<section class="ins"><h3>${cert(status, title)}<span class="sub">${sub}</span></h3>
     ${items.length ? `<ul>${items.map((x) => `<li class="edge ${certClass(status)}">${esc(x.text)}${x.evidence?.length ? `<span class="ref">bước ${x.evidence.map((e) => e + 1).join(', ')}</span>` : ''}</li>`).join('')}</ul>` : `<div class="mute small" style="margin-bottom:8px">${live ? 'Chưa có, sẽ cập nhật khi bạn thao tác.' : 'Không có.'}</div>`}</section>`;
-  return `<div class="rail"><h2>AI Live Insights</h2><div class="small mute" style="margin-bottom:6px">Máy quan sát trong lúc quay, không gọi AI nên không làm chậm thao tác.</div>
+  return `<div class="rail"><h2>Live Insights</h2><div class="small mute" style="margin-bottom:6px">Máy quan sát trong lúc quay nên không làm chậm thao tác của bạn.</div>
     ${grp('Observed', 'Observed', 'dữ kiện đã quan sát', ins?.observed ?? [])}${grp('Inferred', 'Possible Rules', 'gợi ý suy ra từ dữ kiện, chưa phải quy tắc', ins?.possible ?? [])}${grp('Needs verification', 'Needs Verification', 'điểm chưa rõ', ins?.verify ?? [])}
-    <div class="small mute" style="padding-top:8px">Suy luận sâu hơn có sau khi bạn dừng quay và bấm “Phân tích bằng AI”.</div></div>`;
+    <div class="small mute" style="padding-top:8px">Sau khi dừng quay, bấm “Xem phân tích” để xem các bước, quy tắc và test case.</div></div>`;
 }
 /** stages: [{label, state:'pending'|'running'|'done'|'error'}] — trạng thái phản ánh việc backend thực sự đã xong, không giả lập. */
 export function AnalysisProgress(stages) {
@@ -90,9 +87,9 @@ export function AnalysisProgress(stages) {
 }
 
 // ---------- Phân tích ----------
-export function BusinessFlowStepper(biz, steps) {
-  if (!biz?.length) return `<div class="empty">${icon('sparkles', 28)}<h3>Chưa có bước nghiệp vụ</h3><div class="small">Bấm “Phân tích bằng AI” để AI gom các thao tác nhỏ thành bước nghiệp vụ.</div></div>`;
-  return `<ol class="stepper">${biz.map((b) => `<li><details><summary>${esc(b.title)}<span class="badge">${b.stepIndices.length} thao tác</span></summary><div class="sub">${b.description ? `<div class="mute">${esc(b.description)}</div>` : ''}${b.stepIndices.map((i) => `<div class="small">${i + 1}. ${esc(steps[i]?.text ?? '')}</div>`).join('')}</div></details></li>`).join('')}</ol>`;
+export function BusinessFlowStepper(biz, steps, { machine = false } = {}) {
+  if (!biz?.length) return `<div class="empty">${icon('sparkles', 28)}<h3>Chưa có bước nghiệp vụ</h3><div class="small">Chưa gom được thao tác nào thành bước.</div></div>`;
+  return `${machine ? '<div class="card-b small mute" style="padding-bottom:0">Gom theo trang và theo lần lưu dữ liệu bằng quy tắc của máy.</div>' : ''}<ol class="stepper">${biz.map((b) => `<li><details><summary>${esc(b.title)}<span class="badge">${b.stepIndices.length} thao tác</span></summary><div class="sub">${b.description ? `<div class="mute">${esc(b.description)}</div>` : ''}${b.stepIndices.map((i) => `<div class="small">${i + 1}. ${esc(steps[i]?.text ?? '')}</div>`).join('')}</div></details></li>`).join('')}</ol>`;
 }
 const KIND = { dependency: 'Field dependency', 'field-appears': 'Conditional UI', 'field-disappears': 'Conditional UI', 'button-state': 'Conditional UI', 'field-state': 'Conditional UI', required: 'Required field', 'required-marker': 'Required field', 'default-value': 'Default value', 'validation-error': 'Validation', 'write-api': 'Workflow', toast: 'Workflow', state: 'Workflow', 'business-rule': 'Workflow' };
 export const kindLabel = (k) => KIND[k] ?? 'Rule';
@@ -149,13 +146,13 @@ export function TestRunReport(run) {
   const failed = run.steps.filter((x) => x.status === 'Failed');
   const ic = { Passed: 'circleCheck', Failed: 'circleX', Blocked: 'alert', 'Needs review': 'circleAlert', Skipped: 'info', Running: 'info' };
   return `<div class="card"><div class="card-b"><div class="row wrap"><h2>${esc(run.flow_name ?? 'Test run')}</h2>${badge(run.status)}<span class="meta"><span>v${run.version}</span><span>${dt(run.started_at)}</span>${run.finished_at ? `<span>${dur(new Date(run.finished_at) - new Date(run.started_at))}</span>` : ''}</span>
-      ${running ? `<span class="row small mute"><span class="spin"></span>đang chạy — ${done}/${total || '…'} bước</span>` : ''}</div>
+      ${running ? `<span class="row small mute"><span class="spin"></span>đang chạy — ${done}/${total || '…'} bước</span><button class="btn sm danger sp" data-act="stop-run" data-id="${esc(run.id)}">${icon('stop', 12)}Dừng chạy</button>` : ''}</div>
     ${s.counts ? `<div class="row wrap" style="margin-top:10px">${Object.entries(s.counts).map(([k, v]) => `${badge(k)}<b>${v}</b>`).join('<span style="width:8px"></span>')}</div>` : ''}</div></div>
     ${failed.map((x) => `<div class="callout bad" style="margin-top:12px">${icon('circleX', 18)}<div><b>${esc(x.title)}</b><div>${x.classification ? classBadge(x.classification) : '<span class="badge">Unknown — Needs investigation</span>'} ${esc(x.error ?? '')}</div></div></div>`).join('')}
     ${s.proposedVersion ? `<div class="callout info" style="margin-top:12px">${icon('info', 18)}<div>Giao diện đã đổi nhưng flow vẫn chạy được: hệ thống đề xuất <b>phiên bản v${s.proposedVersion}</b> (chưa ghi đè). Xem ở trang chi tiết flow.</div></div>` : ''}
     ${s.ruleChange ? `<div class="callout ok" style="margin-top:12px">${icon('circleCheck', 18)}<div>Quy tắc bắt buộc được cập nhật: ${badge(s.ruleChange.from)} → ${badge(s.ruleChange.to)}</div></div>` : ''}
     <div class="card" style="margin-top:12px"><div class="card-h"><h3>Các bước</h3></div>${run.steps.length ? `<ul class="run-steps">${run.steps.map((x) => `<li class="${x.status.replace(' ', '-')}"><span class="mk">${icon(ic[x.status] ?? 'info', 18)}</span><div><div style="color:var(--ink)">${esc(x.title)}</div>
-      ${x.error ? `<div class="${x.status === 'Failed' ? 'err' : 'small mute'}">${x.classification ? classBadge(x.classification) + ' ' : ''}${esc(x.error)}</div>` : ''}${x.evidence?.chosen ? `<div class="small mute">Đã chọn: ${esc(x.evidence.chosen)}</div>` : ''}${x.evidence?.how ? `<div class="small mute">Tìm phần tử bằng: ${esc(x.evidence.how)}</div>` : ''}</div>
+      ${x.error ? `<div class="${x.status === 'Failed' ? 'err' : 'small mute'}">${x.classification ? classBadge(x.classification) + ' ' : ''}${esc(x.error)}</div>` : ''}${x.evidence?.chosen ? `<div class="small mute">Đã chọn: ${esc(x.evidence.chosen)}</div>` : ''}${x.evidence?.filled ? `<div class="small mute">Tự điền: «${esc(x.evidence.filled.to)}» (đã quay: «${esc(x.evidence.filled.from)}»)</div>` : ''}${x.evidence?.how ? `<div class="small mute">Tìm phần tử bằng: ${esc(x.evidence.how)}</div>` : ''}${x.evidence?.note ? `<div class="small mute">${esc(x.evidence.note)}</div>` : ''}${x.evidence?.candidates?.length ? `<div class="small">Gần giống đang có trên trang: ${x.evidence.candidates.map((c) => `<span class="badge">${esc(c)}</span>`).join(' ')}</div>` : ''}</div>
       <div class="row">${x.evidence?.shot ? `<a href="/runshots/${esc(run.id)}/${x.idx}.jpg" target="_blank"><img loading="lazy" src="/runshots/${esc(run.id)}/${x.idx}.jpg" alt="Ảnh bước"/></a>` : ''}<span class="mute small mono">${dur(x.duration_ms)}</span></div></li>`).join('')}</ul>`
       : `<div class="empty"><span class="spin"></span><div class="small" style="margin-top:8px">Đang mở trình duyệt…</div></div>`}</div>
     ${(s.limits ?? []).map((l) => `<div class="callout warn" style="margin-top:12px">${icon('alert', 18)}<div>${esc(l)}</div></div>`).join('')}`;
@@ -170,14 +167,19 @@ export function stripHtml(steps, startedAt, fresh = 0) {
     return `<i class="${cls} ${i >= steps.length - fresh ? 'fresh' : ''}" style="left:${left}%" title="${esc(s.text)}"></i>`;
   }).join('');
 }
-/** Bảng điều khiển quay: lúc sẵn sàng là form bắt đầu; lúc đang quay là thanh transport tối (điểm nhấn duy nhất của trang). */
+/** Bảng điều khiển quay: cùng một máy ghi tối cho cả lúc chờ và lúc đang quay (điểm nhấn duy nhất của trang). */
 export function RecordingControlPanel({ mode, st, env }) {
   if (mode === 'ready' || mode === 'review') {
-    return `<div class="start-form"><label class="field">Tên luồng<input id="rname" placeholder="Ví dụ: Tạo phiếu yêu cầu tuyển dụng PATD"/></label>
-      <label class="field">URL website cần test<input id="rurl" placeholder="${esc(env?.baseUrl ?? '')}"/></label><button class="btn rec lg" data-act="start">${icon('record', 16)}Bắt đầu quay</button></div>
-      <div class="card-b small mute" style="padding-top:0">${env?.credentials?.saved
-        ? `Dùng tài khoản đã nhớ: <b>${esc(env.credentials.username)}</b>. <label class="row" style="display:inline-flex;gap:6px;margin-left:8px"><input type="checkbox" id="rrelogin"/> Đăng nhập bằng tài khoản khác</label>`
-        : 'Chưa nhớ tài khoản nào: Chrome sẽ mở ở màn hình đăng nhập. Nhập tài khoản của bạn, hệ thống nhớ để dùng cho các lần quay và chạy lại sau.'} Chỉ ghi nhận trên môi trường staging được cấu hình.</div>`;
+    const how = [['Đặt tên và mở Chrome', 'Nhập tên luồng, bấm Bắt đầu quay. Chrome mở ở trang đăng nhập.'], ['Làm đúng như khi test tay', 'Máy ghi từng thao tác và các API đi kèm, không làm chậm bạn.'], ['Dừng & lưu', 'Hệ thống phân tích thành bước, quy tắc, test case để chạy lại.']];
+    return `<div class="rec-ready"><div class="rr-main">
+      <div class="rr-head"><span class="rr-dot">${icon('record', 18)}</span><div><h2>Bắt đầu một lần quay</h2><div class="small mute">Máy ghi đã sẵn sàng, chưa ghi gì cho tới khi bạn bấm bắt đầu.</div></div></div>
+      <div class="rr-form"><label class="field">Tên luồng<input id="rname" placeholder="Ví dụ: Tạo phiếu yêu cầu tuyển dụng PATD"/></label>
+        <label class="field">URL website cần test<input id="rurl" placeholder="${esc(env?.baseUrl ?? '')}"/></label>
+        <button class="btn rec lg" data-act="start">${icon('record', 16)}Bắt đầu quay</button></div>
+      <div class="rr-note">${env?.credentials?.saved
+        ? `Dùng tài khoản đã nhớ: <b>${esc(env.credentials.username)}</b>, tự đăng nhập khi mở Chrome. <label class="row" style="display:inline-flex;gap:6px;margin-left:8px"><input type="checkbox" id="rrelogin"/> Đăng nhập bằng tài khoản khác</label>`
+        : (env?.user ? `Chưa nhớ tài khoản riêng: Chrome tự đăng nhập bằng tài khoản QA <b>${esc(env.user)}</b> trong .env. Muốn dùng tài khoản của bạn thì lưu ở Cài đặt.` : 'Chưa nhớ tài khoản nào: Chrome sẽ mở ở màn hình đăng nhập. Nhập tài khoản của bạn, hệ thống nhớ để dùng cho các lần quay và chạy lại sau.')} Chỉ ghi nhận trên môi trường staging được cấu hình.</div></div>
+      <ol class="rr-how">${how.map(([t, d]) => `<li><b>${t}</b><span>${d}</span></li>`).join('')}</ol></div>`;
   }
   const paused = mode === 'paused';
   return `<div class="transport"><div class="top">
@@ -186,6 +188,6 @@ export function RecordingControlPanel({ mode, st, env }) {
       <div class="stat"><b id="rcount">${st.count}</b><span>thao tác</span></div><div class="stat"><b id="rapis">${st.apis?.length ?? 0}</b><span>API ghi dữ liệu</span></div>
       <div class="row sp">${paused ? `<button class="btn primary lg" data-act="resume">${icon('play', 15)}Tiếp tục</button>` : `<button class="btn lg" data-act="pause">${icon('pause', 15)}Tạm dừng</button>`}<button class="btn lg" data-act="stop">${icon('stop', 15)}Dừng &amp; lưu</button></div></div>
     <div class="strip" id="rstrip" aria-label="Dòng thời gian các thao tác"></div>
-    <div class="strip-key"><span><b style="background:#8f9bff"></b>bấm</span><span><b style="background:#55c2e6"></b>chuyển trang</span><span><b style="background:#c79bff"></b>chọn dữ liệu</span><span><b style="background:#5fd3a0"></b>nhập</span><span><b style="background:#ffb454"></b>ghi dữ liệu (API)</span>
+    <div class="strip-key"><span><b style="background:#cfdce6"></b>bấm</span><span><b style="background:#86b6ff"></b>chuyển trang</span><span><b style="background:#c79bff"></b>chọn dữ liệu</span><span><b style="background:#6fdc9a"></b>nhập</span><span><b style="background:#ff8a5c"></b>ghi dữ liệu (API)</span>
       <input id="rnote" class="grow" style="height:26px;min-width:200px;margin-left:auto" placeholder="Ghi chú (không bắt buộc) rồi Enter"/></div></div>`;
 }

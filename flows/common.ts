@@ -1,5 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+// @ts-ignore — module .mjs không có kiểu
+import { TOTP_FILE as _TOTP_FILE, chooseSso as _chooseSso, submitOtpIfAsked as _submitOtp, totpSecretFor as _totpSecretFor } from '../web/auto-login.mjs';
 
 /** Tiền tố đặt tên mọi bản ghi do bộ test tạo (để dọn đúng thứ mình tạo, không đụng dữ liệu thật). */
 export const QA_PREFIX = '[AUTOTEST]';
@@ -15,16 +17,21 @@ export const CREDENTIALS_FILE = '.auth/credentials.json';
 export const USER_STATE = '.auth/user-state.json';
 export const USER_SESSION = '.auth/user-session.json';
 
-export interface Credentials { username: string; password: string; source: 'saved' | 'env' }
+// Đăng nhập tự động (TOTP, chọn SSO, điền mã 2 bước) nằm ở web/auto-login.mjs để máy ghi của web dùng chung.
+export const TOTP_FILE: string = _TOTP_FILE;
+export const totpSecretFor: (username: string, file?: string) => string | undefined = _totpSecretFor;
+export const chooseSso: (page: Page) => Promise<void> = _chooseSso;
+export const submitOtpIfAsked: (page: Page, secret?: string) => Promise<boolean> = _submitOtp;
+export interface Credentials { username: string; password: string; source: 'saved' | 'env'; totpSecret?: string; local?: boolean }
 /** Ưu tiên tài khoản đã nhớ lúc quay; không có thì dùng QA_USERNAME / QA_PASSWORD trong .env. */
 export function loadCredentials(file = CREDENTIALS_FILE): Credentials {
   if (existsSync(file)) {
     const j = JSON.parse(readFileSync(file, 'utf8'));
-    if (j.username && j.password) return { username: j.username, password: j.password, source: 'saved' };
+    if (j.username && j.password) return { username: j.username, password: j.password, source: 'saved', totpSecret: j.totpSecret || totpSecretFor(j.username), local: j.local === true };
   }
   const { QA_USERNAME, QA_PASSWORD } = process.env;
   if (!QA_USERNAME || !QA_PASSWORD) throw new Error('Chưa có tài khoản: hãy quay một luồng và nhập tài khoản ở màn hình đăng nhập, hoặc đặt QA_USERNAME / QA_PASSWORD trong .env');
-  return { username: QA_USERNAME, password: QA_PASSWORD, source: 'env' };
+  return { username: QA_USERNAME, password: QA_PASSWORD, source: 'env', totpSecret: totpSecretFor(QA_USERNAME), local: process.env.QA_LOGIN_LOCAL === '1' };
 }
 export interface RunAuth { state: string; session: string; creds: Credentials }
 /** Phiên + tài khoản dùng khi chạy lại flow đã quay: của tester nếu đã nhớ, ngược lại của tài khoản QA. */
@@ -122,13 +129,16 @@ export function cleanupCandidates<T extends { id: string; title: string }>(recor
 export async function ensureLoggedIn(page: Page, path = '/dashboard', auth: RunAuth = { state: AUTH_STATE, session: AUTH_SESSION, creds: loadCredentials('.auth/none.json') }): Promise<void> {
   await forceEnglish(page, auth.session);
   await page.goto(path);
+  if (await page.evaluate(() => !!(localStorage.getItem('ehiring_sso_session_token') || sessionStorage.getItem('0-ehiring'))).catch(() => false)) return; // phiên còn hạn: khỏi chờ trang đăng nhập
+  if (!auth.creds.local) await chooseSso(page); // tài khoản local: form đăng nhập nằm ngay trên trang của app, không qua Keycloak
   const loginForm = page.locator('#username');
   if (!(await loginForm.waitFor({ timeout: 8000 }).then(() => true, () => false))) return;
   await loginForm.fill(auth.creds.username);
   await page.locator('#password').fill(auth.creds.password);
-  await page.locator('#kc-login').click();
+  await page.locator('#kc-login').or(page.getByRole('button', { name: /^(Sign in|Đăng nhập)$/ })).first().click();
+  await submitOtpIfAsked(page, auth.creds.totpSecret);
   await expect(page.locator('#username')).toHaveCount(0, { timeout: 30_000 });
-  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('0-ehiring')), { timeout: 30_000 }).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => !!(localStorage.getItem('ehiring_sso_session_token') || sessionStorage.getItem('0-ehiring'))), { timeout: 30_000 }).toBe(true); // token SSO mới ở localStorage, OIDC cũ ở sessionStorage
   await page.context().storageState({ path: auth.state });
   writeFileSync(auth.session, await page.evaluate(() => JSON.stringify(sessionStorage)));
 }

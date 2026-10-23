@@ -1,7 +1,6 @@
 // Phân tích bản quay → flow nghiệp vụ. Hai tầng, tách bạch để KHÔNG bịa quy tắc:
 //  1) observeFacts: dữ kiện QUAN SÁT được bằng máy (so sánh trạng thái form trước/sau mỗi thao tác, API, thông báo) → status "Observed".
-//  2) AI: gom bước nghiệp vụ, suy luận, câu hỏi, test case → JSON theo schema, được validateAnalysis kiểm lại; AI chỉ được gắn
-//     "Inferred" / "Needs verification", không bao giờ "Observed"/"Confirmed". "Confirmed" chỉ do người xác nhận hoặc lượt chạy kiểm chứng.
+//  2) groupSteps / deriveTestCases: gom bước và dựng test case bằng quy tắc của máy. "Confirmed" chỉ do người xác nhận hoặc lượt chạy kiểm chứng.
 
 const READ_ONLY_API = /\/(dashboard|search|query|filter|count|export|statistics)(\/|$)/i;
 /** API của đăng nhập / SSO / xác thực 2 bước: không thuộc nghiệp vụ nên không bao giờ coi là "kết quả mong đợi". */
@@ -61,6 +60,37 @@ export function observeFacts(steps) {
   return facts.map(({ key: _k, ...f }) => f);
 }
 
+/**
+ * Gom thao tác nhỏ thành BƯỚC NGHIỆP VỤ chỉ bằng quy tắc (không AI): mỗi trang là một bước; thao tác ghi dữ liệu (API ghi / bấm lưu) kết thúc bước.
+ * Tên bước nói đúng điều đã quan sát (vào trang nào, chọn/nhập gì, gọi API nào), không suy diễn nghiệp vụ.
+ */
+export function groupSteps(steps) {
+  const groups = [];
+  let cur = null;
+  const flush = () => { if (cur) groups.push(cur); cur = null; };
+  steps.forEach((s, i) => {
+    const a = s.act ?? {};
+    if (!cur || (a.type === 'nav' && cur.idx.length)) { flush(); cur = { idx: [], url: s.url ?? '' }; }
+    cur.idx.push(i);
+    const wrote = (s.effects ?? []).some((e) => { const m = /^(\w+) (\S+) → \d+$/.exec(e); return m && isWriteApi(m[1], m[2]); });
+    if (wrote) { cur.write = (s.effects ?? []).find((e) => /^(POST|PUT|PATCH|DELETE) /.test(e)); flush(); }
+  });
+  flush();
+  return groups.map((g) => {
+    const list = g.idx.map((i) => steps[i]);
+    const acts = list.map((s) => s.act ?? {});
+    const fields = [...new Set(acts.filter((a) => a.type === 'input' || a.type === 'file').map((a) => a.field).filter(Boolean))];
+    const picks = acts.filter((a) => a.dataChoice).map((a) => a.dataField || a.text);
+    let title;
+    if (g.write) title = `Lưu dữ liệu (${g.write.replace(/ → \d+$/, '')})`;
+    else if (acts[0]?.type === 'nav' && list.length === 1) title = `Vào trang ${g.url || ''}`.trim();
+    else if (picks.length) title = `Chọn dữ liệu: ${[...new Set(picks)].slice(0, 3).join(', ')}`;
+    else if (fields.length) title = `Nhập thông tin: ${fields.slice(0, 3).join(', ')}${fields.length > 3 ? '…' : ''}`;
+    else title = `Thao tác trên trang ${g.url || ''}`.trim();
+    return { title, description: acts[0]?.type === 'nav' && list.length > 1 ? `Bắt đầu bằng vào trang ${g.url}` : '', stepIndices: g.idx, source: 'machine' };
+  });
+}
+
 /** Kết quả mong đợi rút từ bản quay: chỉ những gì QUAN SÁT được (API ghi + thông báo). */
 export function buildExpected(steps) {
   const writes = [], toasts = [];
@@ -86,36 +116,6 @@ export function findSimilar(flows, { name, signature }) {
   }).filter((x) => x.score >= 0.5).sort((a, b) => b.score - a.score);
 }
 
-const AI_KINDS = ['happy', 'required-validation', 'alternative', 'negative', 'boundary', 'regression'];
-
-/** Kiểm tra JSON AI trả về. Ép trạng thái quy tắc: AI không được tự nhận Observed/Confirmed; bằng chứng phải trỏ tới bước có thật. */
-export function validateAnalysis(raw, stepCount) {
-  const problems = [];
-  const v = { summary: '', businessSteps: [], rules: [], questions: [], testCases: [], parameters: [] };
-  if (!raw || typeof raw !== 'object') return { ok: false, value: v, problems: ['AI không trả về đối tượng JSON'] };
-  v.summary = String(raw.summary ?? '').slice(0, 600);
-  const idxOk = (a) => Array.isArray(a) && a.every((n) => Number.isInteger(n) && n >= 0 && n < stepCount);
-  for (const b of Array.isArray(raw.business_steps) ? raw.business_steps : []) {
-    if (!b?.title || !idxOk(b.step_indices)) { problems.push(`business_steps bỏ qua: ${JSON.stringify(b).slice(0, 80)}`); continue; }
-    v.businessSteps.push({ title: String(b.title).slice(0, 160), description: String(b.description ?? '').slice(0, 400), stepIndices: b.step_indices });
-  }
-  for (const r of Array.isArray(raw.rules) ? raw.rules : []) {
-    if (!r?.statement) continue;
-    const evidence = idxOk(r.evidence) ? r.evidence : [];
-    let status = r.status === 'Needs verification' ? 'Needs verification' : 'Inferred';
-    if (!evidence.length) { status = 'Needs verification'; if (r.status === 'Inferred') problems.push(`quy tắc không có bằng chứng → hạ về Needs verification: ${String(r.statement).slice(0, 60)}`); }
-    if (['Observed', 'Confirmed'].includes(r.status)) problems.push(`AI tự nhận ${r.status} → ép thành ${status}: ${String(r.statement).slice(0, 60)}`);
-    v.rules.push({ kind: String(r.kind ?? 'business-rule').slice(0, 40), statement: String(r.statement).slice(0, 400), status, evidence, source: 'ai' });
-  }
-  for (const q of Array.isArray(raw.questions) ? raw.questions : []) if (q?.text) v.questions.push({ text: String(q.text).slice(0, 300), why: String(q.why ?? '').slice(0, 300) });
-  for (const t of Array.isArray(raw.test_cases) ? raw.test_cases : []) {
-    if (!t?.title || !AI_KINDS.includes(t.kind)) { problems.push(`test_case bỏ qua: ${JSON.stringify(t).slice(0, 80)}`); continue; }
-    v.testCases.push({ kind: t.kind, title: String(t.title).slice(0, 200), expected: String(t.expected ?? '').slice(0, 300), requiresPermission: true, executable: false, note: String(t.what_to_explore ?? '').slice(0, 300) || 'AI đề xuất, chưa có cách chạy tự động — cần khám phá thêm.' });
-  }
-  for (const p of Array.isArray(raw.parameters) ? raw.parameters : []) if (p?.description) v.parameters.push({ step: Number.isInteger(p.step) ? p.step : null, description: String(p.description).slice(0, 200), howToVary: String(p.how_to_vary ?? '').slice(0, 200) });
-  return { ok: true, value: v, problems };
-}
-
 /** Test case tự dựng từ dữ kiện quan sát — chạy lại được bằng bộ replay (biến thể của chính bản quay). */
 export function deriveTestCases(steps, facts, expected = { writes: [] }) {
   const cases = [{ kind: 'happy', title: 'Luồng thành công: làm lại đúng như đã quay', variant: {}, expected: 'Mọi bước chạy được và các API ghi / thông báo xảy ra giống bản quay.', requiresPermission: true, executable: true, note: '' },
@@ -133,40 +133,6 @@ export function deriveTestCases(steps, facts, expected = { writes: [] }) {
   const dataIdx = steps.map((s, i) => (s.act?.dataChoice ? i : -1)).filter((i) => i >= 0);
   for (const i of dataIdx) cases.push({ kind: 'alternative', title: `Dữ liệu khác ở bước ${i + 1}: ${steps[i].act.dataField || 'danh sách chọn'} (lấy mục đầu tiên)`, variant: { values: { [i]: '' }, fallbackFirst: true }, expected: 'Luồng vẫn hoàn thành; nếu khác bản quay thì ghi nhận là nhánh khác.', requiresPermission: true, executable: true, note: '' });
   return cases;
-}
-
-const SCHEMA_HINT = `{"summary":"1-2 câu","business_steps":[{"title":"bước nghiệp vụ","description":"...","step_indices":[0,1]}],"rules":[{"kind":"dependency|required|default|validation|state|other","statement":"...","status":"Inferred|Needs verification","evidence":[chỉ số bước],"confidence":0.0}],"questions":[{"text":"câu hỏi xác minh ngắn","why":"vì sao cần"}],"test_cases":[{"kind":"happy|required-validation|alternative|negative|boundary|regression","title":"...","expected":"...","what_to_explore":"cần khám phá gì thêm nếu chưa đủ bằng chứng"}],"parameters":[{"step":0,"description":"dữ liệu có thể khác","how_to_vary":"..."}]}`;
-
-export async function analyzeRecording({ rec, facts, similar, docs, ask, provider = 'claude' }) {
-  const steps = rec.steps.map((s, i) => `${i}. ${redact(s.text)}${(s.effects ?? []).map((e) => ` [API ${e}]`).join('')}${(s.toasts ?? []).map((t) => ` [toast ${t.kind}: ${redact(t.text)}]`).join('')}${(s.notes ?? []).map((n) => ` [ghi chú tester: ${redact(n)}]`).join('')}`).join('\n');
-  const prompt = `Bạn là QA analyst. Tester vừa thao tác tay một luồng trên eHiring (họ KHÔNG nhất thiết hiểu nghiệp vụ, có thể thao tác sai hoặc đang khám phá). Hãy tái dựng luồng nghiệp vụ và nêu các quy tắc CÓ THỂ có.
-
-QUY TẮC BẮT BUỘC:
-- Chỉ dùng dữ liệu bên dưới. Không bịa quy tắc. Thứ tự thao tác KHÔNG chứng minh phụ thuộc (đã chọn A trước B ≠ B phụ thuộc A).
-- Mỗi quy tắc phải có "evidence" là chỉ số các bước ở danh sách bên dưới; không có bằng chứng thì status = "Needs verification".
-- status chỉ được là "Inferred" (suy luận từ bằng chứng) hoặc "Needs verification". KHÔNG dùng "Observed"/"Confirmed".
-- Gom nhiều thao tác nhỏ thành MỘT bước nghiệp vụ. Chỉ hỏi câu thật sự cần thiết (tối đa 4).
-- Test case negative/boundary: chỉ đề xuất khi có căn cứ; nếu chưa đủ, ghi what_to_explore thay vì tự đặt ra quy tắc.
-
-# Các bước đã quay (đánh số từ 0)
-${steps}
-
-# Dữ kiện máy QUAN SÁT được (đã chắc, không cần suy luận lại)
-${facts.map((f) => `- [${f.kind}] ${redact(f.statement)}`).join('\n') || '(không có)'}
-
-# Flow tương tự đã có
-${similar.map((s) => `- ${s.name} (${s.reason})`).join('\n') || '(không có)'}
-
-# Tài liệu nghiệp vụ đã học (trích)
-${docs}
-
-Chỉ trả về MỘT đối tượng JSON, không văn bản ngoài, đúng dạng:
-${SCHEMA_HINT}`;
-  const { result, cost, model } = await ask(prompt, provider);
-  let raw = null;
-  try { raw = JSON.parse(result.slice(result.indexOf('{'), result.lastIndexOf('}') + 1)); } catch { /* validateAnalysis báo */ }
-  const checked = validateAnalysis(raw, rec.steps.length);
-  return { ...checked, cost, model };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../flows/test';
 import { forceEnglish } from '../flows/common';
 
 // Seed cho agent planner/generator (trang bắt đầu của mọi kịch bản) và đồng thời là smoke test đăng nhập.

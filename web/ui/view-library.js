@@ -12,16 +12,17 @@ export async function startReplay(flowId, testCaseId) {
   try { D = await api.get('/api/flow?id=' + flowId); } catch (e) { return fail(e); }
   const tc = testCaseId ? D.testCases.find((c) => c.id === Number(testCaseId)) : null;
   const writes = [...new Set((D.current.expected.writes ?? []).map((w) => `${w.method} ${w.path}`))];
-  const data = D.current.steps.map((s, i) => ({ s, i })).filter((x) => x.s.act?.dataChoice);
   const needAllow = writes.length > 0 || !!tc;
+  const inputs = D.current.steps.filter((s) => s.act?.type === 'input' && !s.act.secret && !s.act.login).length;
   const body = `<div class=\"col\" style=\"gap:2px\"><div>Flow <b>${esc(D.flow.name)}</b></div>${tc ? `<div>Test case <b>${esc(tc.title)}</b></div>` : ''}<div class=\"small mute\">${D.current.steps.length} bước trên <b>${esc(state.env?.host ?? 'staging')}</b></div></div>
     ${writes.length ? `<div class="callout warn">${icon('alert', 18)}<div><b>Replay sẽ GHI dữ liệu thật trên môi trường test:</b><div class="mono">${writes.map(esc).join('<br>')}</div></div></div>` : tc ? `<div class="callout warn">${icon('alert', 18)}<div>Test case này có thể thay đổi dữ liệu trên môi trường test.</div></div>` : ''}
-    ${data.length ? `<div class="col"><div class="small mute">Dữ liệu chọn (để trống = lấy mục đầu tiên của danh sách):</div>${data.map((x) => `<label class="field">${esc(x.s.act.dataField || 'Danh sách chọn')}<input data-val="${x.i}" value="${esc(x.s.act.text)}"/></label>`).join('')}</div>` : ''}`;
+    ${inputs ? `<label class="row small" style="gap:8px;align-items:flex-start"><input type="checkbox" id="autofill" checked style="margin-top:3px"/><span><b>Tự điền dữ liệu mới giống thật</b> thay cho ${inputs} giá trị đã quay (tên, số điện thoại, ngày, tiêu đề…). Mỗi lần chạy khác nhau nên không tạo bản ghi trùng; email luôn là hộp thư QA.</span></label>` : ''}
+`;
   let job = null;
   const ok = await modal({ title: 'Replay test flow', body, ok: 'Bắt đầu chạy', check: needAllow ? 'Tôi cho phép chạy trên môi trường test' : '',
     onOk: async (ov) => {
       const values = {}; ov.querySelectorAll('[data-val]').forEach((i) => { values[i.dataset.val] = i.value.trim(); });
-      job = await api.post('/api/flow/run', { flowId, testCaseId: tc?.id, params: { values, fallbackFirst: true }, allowWrites: needAllow });
+      job = await api.post('/api/flow/run', { flowId, testCaseId: tc?.id, params: { values, fallbackFirst: true, autofill: !!ov.querySelector('#autofill')?.checked }, allowWrites: needAllow });
     } });
   if (ok && job) navigate(`/runs/${job.runId}`);
 }
@@ -89,7 +90,7 @@ export async function flowDetailView(root) {
           : tab === 'history' ? RunsTable(runs.map((r) => ({ ...r, flow_name: flow.name })))
             : overview;
     root.innerHTML = `<div class="page-head"><div><div class="row wrap"><h1>${esc(flow.name)}</h1>${badge(flow.status)}<span class="badge">v${flow.current_version}</span></div>${meta(esc(flow.module || ''), `${current.steps.length} bước`, `${flow.runs ?? runs.length} lần chạy`)}</div>
-      <span class="sp row"><button class="btn primary" data-act="replay">${icon('play', 14)}Replay</button><button class="btn" data-act="confirm">${flow.status === 'confirmed' ? 'Bỏ xác nhận' : `${icon('check', 14)}Xác nhận đúng nghiệp vụ`}</button>${rules.some((r) => r.source === 'ai') ? '' : `<button class="btn" data-act="ai">${icon('sparkles', 14)}AI phân tích sâu</button>`}<button class="btn icon" data-act="menu" aria-label="Thêm">${icon('more', 16)}</button></span></div>
+      <span class="sp row"><button class="btn primary" data-act="replay">${icon('play', 14)}Replay</button><button class="btn" data-act="confirm">${flow.status === 'confirmed' ? 'Bỏ xác nhận' : `${icon('check', 14)}Xác nhận đúng nghiệp vụ`}</button><button class="btn icon" data-act="menu" aria-label="Thêm">${icon('more', 16)}</button></span></div>
       ${proposed.length ? `<div class="callout warn" style="margin-bottom:14px">${icon('alert', 18)}<div>Có <b>${proposed.length}</b> phiên bản đề xuất đang chờ bạn xem. <a href="#" data-act="tab" data-k="versions">Xem phiên bản</a></div></div>` : ''}
       <div class="tabs">${T('overview', 'Overview')}${T('rules', 'Rules', rules.length)}${T('cases', 'Test Cases', testCases.length)}${T('versions', 'Versions', flow.versions.length)}${T('history', 'History', runs.length)}</div>${body}`;
   }
@@ -97,7 +98,6 @@ export async function flowDetailView(root) {
   onAct({
     tab: (el) => { tab = el.dataset.k; paint(); }, replay: () => startReplay(id), 'run-case': (el) => startReplay(id, Number(el.dataset.id)),
     confirm: async () => { try { await api.post('/api/flow/status', { id, status: D.flow.status === 'confirmed' ? 'draft' : 'confirmed' }); await load(); } catch (e) { fail(e); } },
-    ai: async (el) => { el.disabled = true; el.textContent = 'AI đang phân tích (~30s)…'; try { const r = await api.post('/api/flow/ai', { flowId: id, provider: localStorage.getItem('ai-provider') || 'claude' }); toast(`AI thêm ${r.rules} quy tắc, ${r.questions} câu hỏi.`); await load(); } catch (e) { fail(e); await load(); } },
     rule: async (el) => { try { await api.post('/api/flow/rule', { id: Number(el.dataset.id), status: el.dataset.st }); await load(); } catch (e) { fail(e); } },
     answer: async (el) => { try { await api.post('/api/flow/question', { id: Number(el.dataset.id), answer: root.querySelector(`[data-qa="${el.dataset.id}"]`).value, state: el.dataset.st }); await load(); } catch (e) { fail(e); } },
     ver: async (el) => { if (el.dataset.a === 'accept' && !(await modal({ title: 'Chấp nhận phiên bản này?', body: '<div class="small">Phiên bản hiện tại vẫn được giữ trong lịch sử.</div>', ok: 'Chấp nhận' }))) return; try { await api.post('/api/flow/version', { flowId: id, version: Number(el.dataset.v), action: el.dataset.a }); await load(); } catch (e) { fail(e); } },
@@ -124,10 +124,18 @@ export async function runDetailView(root) {
   const paint = async () => {
     try {
       const run = await api.get('/api/run?id=' + encodeURIComponent(id));
-      root.innerHTML = `<div class="page-head"><div><h1>Báo cáo lượt chạy</h1><p class="mono">${esc(run.id)}</p></div><span class="sp row"><a class="btn" href="#/runs">${icon('runs', 14)}Tất cả lượt chạy</a><a class="btn" href="#/flows/${run.flow_id}">${icon('flows', 14)}Mở Test Flow</a></span></div>${TestRunReport(run)}`;
+      root.innerHTML = `<div class="page-head"><div><h1>Báo cáo lượt chạy</h1><p class="mono">${esc(run.id)}</p></div><span class="sp row"><a class="btn" href="#/runs">${icon('runs', 14)}Tất cả lượt chạy</a><a class="btn" href="#/flows/${run.flow_id}">${icon('flows', 14)}Mở Test Flow</a>${run.status !== 'Running' ? `<button class="btn primary" data-act="rerun" data-flow="${run.flow_id}" data-tc="${run.test_case_id ?? ''}">${icon('play', 14)}Chạy lại</button>` : ''}</span></div>${TestRunReport(run)}`;
       if (run.status !== 'Running') { clearInterval(timer); timer = null; }
     } catch (e) { clearInterval(timer); root.innerHTML = `<div class="callout bad">${icon('circleX', 18)}<div>${esc(e.message)}</div></div>`; }
   };
+  onAct({
+    rerun: (el) => startReplay(Number(el.dataset.flow), el.dataset.tc || undefined), // cùng hộp xác nhận như khi chạy từ Test Flow (cảnh báo ghi dữ liệu, tự điền, chọn dữ liệu)
+    'stop-run': async (el) => {
+      if (!(await modal({ title: 'Dừng lượt chạy này?', danger: true, ok: 'Dừng chạy', body: '<div class="small">Cửa sổ Chrome đang chạy sẽ bị đóng và lượt chạy được ghi là Blocked. Dữ liệu đã tạo trên staging không bị xoá.</div>' }))) return;
+      try { await api.post('/api/run/stop', { id: el.dataset.id }); toast('Đã dừng lượt chạy.'); } catch (e) { fail(e); }
+      paint();
+    },
+  });
   await paint();
   if (!timer && root.querySelector('.spin')) { timer = setInterval(paint, 1500); onLeave(() => clearInterval(timer)); }
 }

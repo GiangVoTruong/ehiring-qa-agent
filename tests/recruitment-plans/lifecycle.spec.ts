@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../../flows/test';
 import * as rr from '../../flows/recruitment-requests';
 import * as rp from '../../flows/recruitment-plans';
 import type { CreatedRequest } from '../../flows/recruitment-requests';

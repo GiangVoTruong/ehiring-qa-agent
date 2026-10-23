@@ -1,7 +1,7 @@
 ---
 flow: users-and-permissions
-learnedCommit: aa1fe551a
-learnedAt: 2026-10-11
+learnedCommit: 3ebed5507
+learnedAt: 2026-10-22
 tenant: shinhanbank (staging)
 status: học từ code (chưa xem UI); CHƯA có flow/test
 sources:
@@ -27,7 +27,7 @@ sources:
 ## Người dùng (`users`)
 
 - `UserStatus`: `active` · `inactive`. Bộ chọn người trong form chỉ liệt kê `status ∈ {active, null}`.
-- API: `GET /users` (có lọc theo trạng thái, tìm text), `GET /users/full`, `GET /users/me`, `PATCH /users/:id`, `PATCH /users/:id/languages` (`meta.language`, **bắt buộc `language`**), `DELETE /users/:id` (xoá mềm).
+- API: `GET /users` (lọc theo trạng thái; tìm text không còn được service chuyển thành điều kiện `$or` regex trên `userName`/`email`/`name` — nguồn: `users.service.ts`, commit 3ebed5507), `GET /users/full`, `GET /users/me`, `PATCH /users/:id`, `PATCH /users/:id/languages` (`meta.language`, **bắt buộc `language`**), `DELETE /users/:id` (xoá mềm).
 - **Cập nhật người dùng** (`updateUser`): tính lại `tags` của user:
   - Không còn nhóm nào ⇒ `tags = []`.
   - Tag dạng `groups.code:<mã>` chỉ giữ khi mã đó còn thuộc nhóm của user.
@@ -40,13 +40,18 @@ sources:
 - **Tag nhóm đặc biệt** đang được code dùng: `SYS_ADM` / `SYS_ADM_ROOT` (hủy được YCTD của người khác; thấy YCTD/kế hoạch cùng phòng), `RECRUITMENT_ADM` / `RECRUITER` (mặc định điền vào **TA Admin** khi tạo YCTD — xem `recruitment-requests.md`).
 - Nhóm lưu quyền chức năng? Role trong token đến từ Keycloak (client roles), **không** đọc từ `user-groups` ở backend; màn `user-permission` (UI) cấu hình ánh xạ — chưa đọc.
 
+## Đã đổi theo commit mới
+
+- 2026-10-22 · commit 3ebed5507 · `users.service.ts`: xoá `applyTextSearch` / `createUserTextSearch` (chuyển `$text` thành `$or` regex trên `userName`, `email`, `name`) và bỏ lệnh gọi trong hàm lọc danh sách `GET /users`. Phần ô tìm text ở mục API trên đã được cập nhật theo.
+
 ## Điểm chưa chắc
 
-- [ ] UI: `/user-groups`, `/user-groups/:id`, `/user-permission` — chưa xem; màn quản lý phân quyền sửa gì (role Keycloak hay dữ liệu ATS)?
-- [ ] Danh sách role thật của tài khoản QA (token); tính năng nào có `*` / `readAll`.
-- [ ] `DELETE /users/:id` — UI có nút xoá/vô hiệu hoá user không; xoá mềm user đang là `assignTo` của kế hoạch thì sao?
-- [ ] Cách tạo thêm tài khoản kiểm thử vai trò hạn chế (cần user/vận hành cấp) để kiểm quyền 403.
-- [ ] `updateUser` nhận `body.groups` nhưng tìm nhóm bằng `groups: {$in: body.groups}` trên **chính collection user-groups** (tức tìm nhóm *cha* chứa các nhóm đó), không phải nhóm của user — cố ý (lấy mã phòng ban cha)?
+- [ ] UI: `/user-groups`, `/user-groups/:id`, `/user-permission` — chưa xem; màn quản lý phân quyền sửa gì (role Keycloak hay dữ liệu ATS)? — nguồn đã xem: chưa có
+- [ ] Danh sách role thật của tài khoản QA (token); tính năng nào có `*` / `readAll`. — nguồn đã xem: smc-auth-decorator.class.ts
+- [ ] `DELETE /users/:id` — UI có nút xoá/vô hiệu hoá user không; xoá mềm user đang là `assignTo` của kế hoạch thì sao? — nguồn đã xem: users.service.ts, users.controller.ts
+- [ ] Cách tạo thêm tài khoản kiểm thử vai trò hạn chế (cần user/vận hành cấp) để kiểm quyền 403. — nguồn đã xem: smc-auth-decorator.class.ts
+- [ ] `updateUser` nhận `body.groups` nhưng tìm nhóm bằng `groups: {$in: body.groups}` trên **chính collection user-groups** (tức tìm nhóm *cha* chứa các nhóm đó), không phải nhóm của user — cố ý (lấy mã phòng ban cha)? — nguồn đã xem: users.service.ts
+- [ ] Sau khi bỏ `applyTextSearch`, tham số `$text` từ UI còn được đưa xuống query Mongo không? Collection `users` có text index không? Tìm theo tên/email/userName trên UI còn hoạt động không? — nguồn đã xem: users.service.ts (diff 3ebed5507)
 
 ## Nghi bug
 

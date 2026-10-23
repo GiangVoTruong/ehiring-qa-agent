@@ -1,11 +1,26 @@
 // Nghiệp vụ "quay → phân tích → lưu flow → chạy lại". server.mjs chỉ định tuyến HTTP tới các hàm ở đây.
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from 'node:path';
-import { ask } from './ai.mjs';
-import { analyzeRecording, buildExpected, cleanExpected, deriveTestCases, findSimilar, flowSignature, liveInsights, observeFacts } from './analysis.mjs';
-import { ALLOWED_HOST, BASE_URL, CRED_FILE, KNOWLEDGE, ROOT, USER_SESSION, USER_STATE } from './config.mjs';
+import {
+  buildExpected,
+  cleanExpected,
+  deriveTestCases,
+  findSimilar,
+  flowSignature,
+  groupSteps,
+  liveInsights,
+  observeFacts,
+} from "./analysis.mjs";
+import {
+  ALLOWED_HOST,
+  BASE_URL,
+  CRED_FILE,
+  ROOT,
+  USER_SESSION,
+  USER_STATE,
+} from "./config.mjs";
 import { existsSync, statSync } from 'node:fs';
-import { REPORTERS, currentJob, startJob } from './jobs.mjs';
+import { REPORTERS, currentJob, jobs, startJob, stopJob } from "./jobs.mjs";
 import { createRecorder } from './recorder.mjs';
 import { openStore } from './store.mjs';
 
@@ -16,25 +31,36 @@ const analyses = new Map(); // phân tích gần nhất của từng bản quay,
 
 const isNav = (s) => s.act?.type === 'nav' && !/dashboard/.test(s.url || '') && (s.url || '') !== '/';
 
-/** Bước 1 (máy, miễn phí): dữ kiện quan sát + kết quả mong đợi + flow tương tự + test case dẫn xuất. Bước 2 (AI, tuỳ chọn): gom bước, suy luận, câu hỏi. */
-export async function analyzeRecordingById({ id, provider = 'none' }) {
+/** Máy phân tích (miễn phí): dữ kiện quan sát + kết quả mong đợi + flow tương tự + test case dẫn xuất. */
+export async function analyzeRecordingById({ id }) {
   const rec = recorder.get(id);
   const facts = observeFacts(rec.steps);
   const expected = buildExpected(rec.steps);
   const signature = flowSignature(expected);
   const similar = findSimilar(store.listFlows(), { name: rec.name, signature });
-  let ai = null;
-  if (provider !== 'none') {
-    const cap = provider === 'ollama' ? [1200, 5000] : [4000, 40000];
-    const docs = readdirSync(KNOWLEDGE).filter((f) => f.endsWith('.md'))
-      .map((f) => `== ${f} ==\n${readFileSync(join(KNOWLEDGE, f), 'utf8').slice(0, cap[0])}`).join('\n\n').slice(0, cap[1]);
-    ai = await analyzeRecording({ rec, facts, similar, docs, ask, provider });
-  }
   const nav = rec.steps.find(isNav);
   const out = {
-    recId: id, name: rec.name, module: (nav?.url ?? '').split('/').filter(Boolean)[0] ?? '', url: nav?.url ?? '', signature, similar,
-    steps: rec.steps.map((s, i) => ({ i, text: s.text, effects: s.effects, toasts: s.toasts ?? [], notes: s.notes ?? [], shot: s.shot ?? null, dataChoice: !!s.act?.dataChoice })),
-    notes: rec.notes, facts, expected, derived: deriveTestCases(rec.steps, facts, expected), ai, at: new Date().toISOString(),
+    recId: id,
+    name: rec.name,
+    module: (nav?.url ?? "").split("/").filter(Boolean)[0] ?? "",
+    url: nav?.url ?? "",
+    signature,
+    similar,
+    steps: rec.steps.map((s, i) => ({
+      i,
+      text: s.text,
+      effects: s.effects,
+      toasts: s.toasts ?? [],
+      notes: s.notes ?? [],
+      shot: s.shot ?? null,
+      dataChoice: !!s.act?.dataChoice,
+    })),
+    notes: rec.notes,
+    groups: groupSteps(rec.steps),
+    facts,
+    expected,
+    derived: deriveTestCases(rec.steps, facts, expected),
+    at: new Date().toISOString(),
   };
   analyses.set(id, out);
   return out;
@@ -43,42 +69,59 @@ export async function analyzeRecordingById({ id, provider = 'none' }) {
 /** Lưu phân tích thành flow mới, hoặc thêm PHIÊN BẢN ĐỀ XUẤT vào flow đã có (không ghi đè). */
 export function saveFlow({ recId, mode = 'new', flowId, name, cases }) {
   const a = analyses.get(recId);
-  if (!a) throw new Error('Chưa phân tích bản quay này — hãy phân tích trước khi lưu.');
+  if (!a)
+    throw new Error(
+      "Chưa phân tích bản quay này — hãy phân tích trước khi lưu.",
+    );
   // Bỏ ảnh trạng thái "trước" (đã dùng để tìm dữ kiện) cho nhẹ; ảnh bằng chứng tham chiếu theo bản quay.
-  const steps = recorder.get(recId).steps.map(({ before, ...s }) => ({ ...s, shot: s.shot ? `${recId}/${s.shot.replace('.jpg', '')}` : null }));
-  const v = a.ai?.value;
-  const analysis = { summary: v?.summary ?? '', businessSteps: v?.businessSteps ?? [], parameters: v?.parameters ?? [], problems: a.ai?.problems ?? [], notes: a.notes, recId };
-  const rules = [...a.facts, ...(v?.rules ?? [])];
-  if (mode === 'version') {
+  const steps = recorder.get(recId).steps.map(({ before, ...s }) => ({
+    ...s,
+    shot: s.shot ? `${recId}/${s.shot.replace(".jpg", "")}` : null,
+  }));
+  const analysis = {
+    summary: "",
+    businessSteps: [],
+    parameters: [],
+    problems: [],
+    notes: a.notes,
+    recId,
+  };
+  const rules = a.facts;
+  if (mode === "version") {
     const id = Number(flowId);
-    if (!store.getFlow(id)) throw new Error('Không có flow này');
-    const version = store.addVersion(id, { steps, expected: a.expected, params: {}, analysis, sourceRecording: recId, note: `Quay lại ${a.at.slice(0, 16)} — chờ xác nhận` });
+    if (!store.getFlow(id)) throw new Error("Không có flow này");
+    const version = store.addVersion(id, {
+      steps,
+      expected: a.expected,
+      params: {},
+      analysis,
+      sourceRecording: recId,
+      note: `Quay lại ${a.at.slice(0, 16)} — chờ xác nhận`,
+    });
     store.addRules(id, version, rules);
     return { flowId: id, version, proposed: true };
   }
-  const id = store.createFlow({ name: name?.trim() || a.name, module: a.module, url: a.url, description: analysis.summary, signature: a.signature, steps, expected: a.expected, params: {}, analysis, sourceRecording: recId });
+  const id = store.createFlow({
+    name: name?.trim() || a.name,
+    module: a.module,
+    url: a.url,
+    description: analysis.summary,
+    signature: a.signature,
+    steps,
+    expected: a.expected,
+    params: {},
+    analysis,
+    sourceRecording: recId,
+  });
   store.addRules(id, 1, rules);
-  const allCases = [...a.derived, ...(v?.testCases ?? [])];
-  store.addTestCases(id, Array.isArray(cases) ? allCases.filter((_, i) => cases.includes(i)) : allCases); // chỉ lưu test case người dùng đã chọn
-  store.addQuestions(id, v?.questions ?? []);
+  const allCases = a.derived;
+  store.addTestCases(
+    id,
+    Array.isArray(cases)
+      ? allCases.filter((_, i) => cases.includes(i))
+      : allCases,
+  ); // chỉ lưu test case người dùng đã chọn
   return { flowId: id, version: 1, proposed: false };
-}
-
-/** Nhờ AI phân tích sâu một flow đã lưu: thêm quy tắc suy luận / câu hỏi / test case (dữ kiện máy đã có sẵn, không lặp). */
-export async function enrichFlow({ flowId, provider = 'claude' }) {
-  const flow = store.getFlow(Number(flowId));
-  if (!flow) throw new Error('Không có flow này');
-  const ver = store.getVersion(flow.id, flow.current_version);
-  if (!ver.analysis?.recId) throw new Error('Flow này không còn bản quay gốc để phân tích.');
-  if (store.listRules(flow.id).some((r) => r.source === 'ai')) throw new Error('Luồng này đã được AI phân tích rồi.');
-  const a = await analyzeRecordingById({ id: ver.analysis.recId, provider });
-  if (!a.ai?.ok) throw new Error('AI trả kết quả không đọc được, thử lại sau.');
-  const v = a.ai.value;
-  store.addRules(flow.id, ver.version, v.rules);
-  store.addQuestions(flow.id, v.questions);
-  store.addTestCases(flow.id, v.testCases);
-  store.setAnalysis(flow.id, ver.version, { ...ver.analysis, summary: v.summary, businessSteps: v.businessSteps, parameters: v.parameters, problems: a.ai.problems }, v.summary);
-  return { rules: v.rules.length, questions: v.questions.length, testCases: v.testCases.length };
 }
 
 /** Xoá một flow (cùng lịch sử chạy + ảnh bằng chứng của các lượt chạy). Bản quay thô trong recordings/ được giữ lại. */
@@ -103,33 +146,100 @@ export function flowDetail(id) {
 }
 
 /** Chạy lại một flow (hoặc một test case dẫn xuất) trên staging. Có hành động ghi → người dùng phải cho phép rõ ràng. */
-export function runSavedFlow({ flowId, testCaseId, params = {}, allowWrites, allowRisky }) {
+export function runSavedFlow({
+  flowId,
+  testCaseId,
+  params = {},
+  allowWrites,
+  allowRisky,
+}) {
   const flow = store.getFlow(Number(flowId));
-  if (!flow) throw new Error('Không có flow này');
+  if (!flow) throw new Error("Không có flow này");
   const ver = store.getVersion(flow.id, flow.current_version);
   const tc = testCaseId ? store.getTestCase(Number(testCaseId)) : null;
   ver.expected = cleanExpected(ver.expected); // API đăng nhập không phải kết quả cần kiểm
   const writes = ver.expected.writes ?? [];
   if ((writes.length || tc?.requires_permission) && !allowWrites) {
-    throw new Error(`Flow này ghi dữ liệu (${[...new Set(writes.map((w) => `${w.method} ${w.path}`))].join(', ') || 'test case có thể thay đổi dữ liệu'}). Cần xác nhận cho phép chạy trên môi trường test.`);
+    throw new Error(
+      `Flow này ghi dữ liệu (${[...new Set(writes.map((w) => `${w.method} ${w.path}`))].join(", ") || "test case có thể thay đổi dữ liệu"}). Cần xác nhận cho phép chạy trên môi trường test.`,
+    );
   }
-  const merged = { ...params, ...(tc?.variant ?? {}), allowRisky: !!allowRisky };
+  // Ngày trong bản quay được dời theo số ngày đã trôi qua kể từ lúc quay (giữ nguyên thứ tự trước/sau giữa các ngày) khi tự điền dữ liệu.
+  let recordedAt = Date.now();
+  try {
+    recordedAt =
+      new Date(recorder.get(ver.analysis?.recId).startedAt).getTime() ||
+      recordedAt;
+  } catch {
+    /* bản quay gốc không còn */
+  }
+  const merged = {
+    ...params,
+    ...(tc?.variant ?? {}),
+    allowRisky: !!allowRisky,
+    shiftDays: Math.max(0, Math.floor((Date.now() - recordedAt) / 86400000)),
+  };
   const runId = `r${Date.now()}`;
-  store.startRun({ id: runId, flowId: flow.id, version: ver.version, testCaseId: tc?.id, params: merged });
-  mkdirSync(join(ROOT, 'data', 'run-input'), { recursive: true });
-  const file = join(ROOT, 'data', 'run-input', `${runId}.json`);
-  writeFileSync(file, JSON.stringify({ runId, flowId: flow.id, version: ver.version, testCaseId: tc?.id ?? null, steps: ver.steps, expected: ver.expected, params: merged }));
+  store.startRun({
+    id: runId,
+    flowId: flow.id,
+    version: ver.version,
+    testCaseId: tc?.id,
+    params: merged,
+  });
+  mkdirSync(join(ROOT, "data", "run-input"), { recursive: true });
+  const file = join(ROOT, "data", "run-input", `${runId}.json`);
+  writeFileSync(
+    file,
+    JSON.stringify({
+      runId,
+      flowId: flow.id,
+      version: ver.version,
+      testCaseId: tc?.id ?? null,
+      steps: ver.steps,
+      expected: ver.expected,
+      params: merged,
+      memory: store.listMemory(flow.id),
+    }),
+  );
   let job;
   try {
     job = startJob({
-      id: 'flowrun', ten: `Chạy flow: ${flow.name}${tc ? ` · ${tc.title}` : ''}`,
-      args: ['test', '--project=procedure', 'tests/custom/replay.spec.ts', REPORTERS, '--headed'],
-      env: { QA_RUN_INPUT: file, SLOWMO: '300', HOLD_MS: '10000', QA_FULLSCREEN: '1' },
+      id: "flowrun",
+      ten: `Chạy flow: ${flow.name}${tc ? ` · ${tc.title}` : ""}`,
+      args: [
+        "test",
+        "--project=procedure",
+        "tests/custom/replay.spec.ts",
+        REPORTERS,
+        "--headed",
+      ],
+      env: {
+        QA_RUN_INPUT: file,
+        SLOWMO: process.env.QA_REPLAY_SLOWMO ?? "100",
+        HOLD_MS: "10000",
+        QA_FULLSCREEN: "1",
+      },
     });
-  } catch (e) { store.finishRun(runId, 'Blocked', { failures: [{ title: 'Không khởi động được', error: String(e.message) }] }); throw e; }
+  } catch (e) {
+    store.finishRun(runId, "Blocked", {
+      failures: [{ title: "Không khởi động được", error: String(e.message) }],
+    });
+    throw e;
+  }
   job.runId = runId;
   job.expected = ver.steps.map((s, i) => `${i + 1}. ${s.text}`);
   return job;
+}
+
+/** Dừng lượt chạy đang chạy: tắt tiến trình test rồi đóng báo cáo là Blocked (tiến trình bị kill nên không tự ghi kết quả). */
+export function stopRun(id) {
+  const job = [...jobs.values()].find((j) => j.runId === id && j.status === 'running');
+  if (!job) throw new Error('Lượt chạy này không còn đang chạy');
+  stopJob(job.id);
+  const run = store.getRun(id);
+  if (run?.status === 'Running') store.finishRun(id, 'Blocked', { failures: [{ title: 'Đã dừng', error: 'Người dùng dừng lượt chạy' }], counts: run.summary?.counts });
+  return runDetail(id);
 }
 
 export function runDetail(id) {
@@ -162,7 +272,9 @@ export function recordingReview(id) {
 }
 
 /** Phân tích đã có (cache) hoặc chạy phân tích máy cho bản quay này. */
-export async function analysisFor(id) { return analyses.get(id) ?? analyzeRecordingById({ id, provider: 'none' }); }
+export async function analysisFor(id) {
+  return analyses.get(id) ?? analyzeRecordingById({ id });
+}
 
 export function renameFlow({ id, name }) {
   if (!String(name ?? '').trim()) throw new Error('Tên không được trống');
@@ -170,28 +282,34 @@ export function renameFlow({ id, name }) {
   return { ok: true };
 }
 
-/** Kiến thức AI đã tích luỹ, gom theo module: các trường đã thấy trên form + quy tắc (kèm mức tin cậy, nguồn, bằng chứng). */
-export function knowledge() {
-  const modules = new Map();
-  for (const f of store.listFlows()) {
-    const key = f.module || '(chưa rõ module)';
-    const m = modules.get(key) ?? { name: key, flows: [], fields: new Map(), rules: [] };
-    modules.set(key, m);
-    m.flows.push({ id: f.id, name: f.name });
-    const ver = store.getVersion(f.id, f.current_version);
-    for (const s of ver.steps) for (const fl of s.after?.fields ?? []) {
-      const x = m.fields.get(fl.label) ?? { label: fl.label, kind: fl.kind, required: false, flows: new Set() };
-      x.required ||= fl.required; x.flows.add(f.name); m.fields.set(fl.label, x);
-    }
-    for (const r of store.listRules(f.id)) m.rules.push({ id: r.id, flowId: f.id, flow: f.name, kind: r.kind, statement: r.statement, status: r.status, evidence: r.evidence, source: r.source, createdAt: r.created_at });
-  }
-  return [...modules.values()].map((m) => ({ ...m, fields: [...m.fields.values()].map((x) => ({ ...x, flows: [...x.flows] })), rules: m.rules.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }));
-}
-
 /** Tài khoản đã nhớ (không bao giờ trả mật khẩu ra ngoài). */
 export function credentialsInfo() {
   if (!existsSync(CRED_FILE)) return { saved: false };
-  try { const j = JSON.parse(readFileSync(CRED_FILE, 'utf8')); return { saved: !!j.username, username: j.username, savedAt: j.savedAt ?? statSync(CRED_FILE).mtime.toISOString() }; } catch { return { saved: false }; }
+  try { const j = JSON.parse(readFileSync(CRED_FILE, 'utf8')); return { saved: !!j.username, username: j.username, hasTotp: !!j.totpSecret, local: j.local === true, savedAt: j.savedAt ?? statSync(CRED_FILE).mtime.toISOString() }; } catch { return { saved: false }; }
+}
+/** Lưu tài khoản tester (và secret OTP nếu có) vào .auth/credentials.json; phiên cũ của tài khoản trước bị bỏ. Không trả mật khẩu ra ngoài. */
+export function saveCredentials({ username, password, totpSecret, local }) {
+  username = String(username ?? '').trim(); password = String(password ?? '');
+  totpSecret = String(totpSecret ?? '').replace(/\s+/g, '').toUpperCase();
+  let old = {}; try { old = JSON.parse(readFileSync(CRED_FILE, 'utf8')); } catch { /* chưa lưu */ }
+  if (!password && old.username === username) password = old.password ?? ''; // để trống = giữ mật khẩu cũ
+  if (!totpSecret && old.username === username) totpSecret = old.totpSecret ?? '';
+  if (!username || !password) throw new Error('Nhập đủ tên đăng nhập và mật khẩu.');
+  if (totpSecret && !/^[A-Z2-7]+=*$/.test(totpSecret)) throw new Error('Secret OTP phải là chuỗi base32 (chữ A–Z và số 2–7).');
+  mkdirSync(join(ROOT, '.auth'), { recursive: true });
+  writeFileSync(CRED_FILE, JSON.stringify({ username, password, ...(totpSecret ? { totpSecret } : {}), ...(local === true ? { local: true } : {}), savedAt: new Date().toISOString() }, null, 2));
+  for (const f of [USER_STATE, USER_SESSION]) rmSync(f, { force: true });
+  return credentialsInfo();
+}
+
+/** Đổi BASE_URL trong .env (chỉ staging được phép). Có hiệu lực sau khi khởi động lại web. */
+export function saveBaseUrl({ url }) {
+  let u; try { u = new URL(String(url ?? '').trim()); } catch { throw new Error('Địa chỉ không hợp lệ — dán cả địa chỉ, bắt đầu bằng https://'); }
+  if (u.protocol !== 'https:' || !ALLOWED_HOST.test(u.hostname)) throw new Error('Chỉ nhận môi trường staging (…stg.ehiring.com.vn hoặc …stg.talentx.vn).');
+  const file = join(ROOT, '.env'); const line = `BASE_URL=${u.origin}`;
+  const cur = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  writeFileSync(file, /^BASE_URL=.*$/m.test(cur) ? cur.replace(/^BASE_URL=.*$/m, line) : cur + (cur && !cur.endsWith('\n') ? '\n' : '') + line + '\n');
+  return { ok: true, baseUrl: u.origin, restart: u.origin !== BASE_URL };
 }
 export function forgetCredentials() {
   for (const f of [CRED_FILE, USER_STATE, USER_SESSION]) rmSync(f, { force: true });
