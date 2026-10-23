@@ -13,6 +13,7 @@ npm install
 copy .env.example .env   # rồi điền BASE_URL, QA_USERNAME, QA_PASSWORD (và QA_TOTP_SECRET nếu Keycloak đòi OTP)
 npm run test:unit        # kiểm tra nhanh, không mở web
 npm test                 # chạy toàn bộ trên staging
+npm run web              # chạy source
 ```
 
 ## Bức tranh tổng thể (3 lớp)
